@@ -1,0 +1,252 @@
+﻿/* --- LoginPage.razor.css (Neon Style) --- */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes textShake {
+    0%,100% {
+        transform: translateX(0);
+    }
+
+    20% {
+        transform: translateX(-1.5px);
+    }
+
+    40% {
+        transform: translateX(1.5px);
+    }
+
+    60% {
+        transform: translateX(-1px);
+    }
+
+    80% {
+        transform: translateX(1px);
+    }
+}
+
+@keyframes neonFlow {
+    0% {
+        filter: drop-shadow(0 0 3px #3b82f6);
+    }
+
+    50% {
+        filter: drop-shadow(0 0 10px #60a5fa);
+    }
+
+    100% {
+        filter: drop-shadow(0 0 3px #3b82f6);
+    }
+}
+
+@keyframes marquee {
+    0% {
+        transform: translateX(0);
+    }
+
+    100% {
+        transform: translateX(-50%);
+    }
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Cấu trúc trang */
+.login-page {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg,#dbeafe,#e0e7ff,#f5f7ff);
+    background-size: 200% 200%;
+    animation: fadeIn 0.6s ease-out;
+    position: relative;
+    font-family: "Segoe UI",Roboto,Helvetica,Arial;
+}
+
+/* Marquee Text */
+.tech-marquee-container {
+    position: absolute;
+    top: 0;
+    width: 100%;
+    background: linear-gradient(90deg,#1d4ed8,#3b82f6,#1e3a8a);
+    padding: .55rem 0;
+    overflow: hidden;
+    white-space: nowrap;
+    box-shadow: 0 2px 10px rgba(0,0,0,.3);
+}
+
+.tech-marquee-text {
+    display: inline-block;
+    animation: marquee 12s linear infinite;
+}
+
+    .tech-marquee-text span {
+        padding: 0 2.2rem;
+        font-size: .95rem;
+        color: white;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+    }
+
+/* Thẻ Login */
+.login-card {
+    width: 100%;
+    max-width: 420px;
+    padding: 2.7rem 3rem;
+    border-radius: 18px;
+    background: rgba(255,255,255,0.7); /* Tăng độ đục lên chút để dễ nhìn */
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.5);
+    box-shadow: 0 8px 32px rgba(0,0,0,.15);
+    text-align: center;
+    transition: .3s;
+}
+
+    .login-card.glow-strong {
+        box-shadow: 0 0 25px rgba(59,130,246,.55),0 8px 32px rgba(0,0,0,.35),inset 0 0 28px rgba(59,130,246,.35);
+        border-color: rgba(59,130,246,.65);
+    }
+
+/* Tiêu đề */
+.login-title {
+    font-size: 2.2rem;
+    font-weight: 800;
+    margin-bottom: 2rem;
+    text-transform: uppercase;
+    background: linear-gradient(90deg, #3b82f6, #60a5fa, #93c5fd);
+    background-size: 250%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text; /* Chuẩn hóa cho mọi trình duyệt */
+    text-shadow: 0 2px 0 #1e3a8a, 0 4px 6px rgba(0,0,0,.1);
+    filter: drop-shadow(0 0 6px #60a5fa);
+    animation: neonFlow 3s infinite ease-in-out;
+}
+
+    .login-title:hover {
+        animation: textShake .35s ease-in-out;
+    }
+
+/* Input */
+.input-group {
+    position: relative;
+    margin-bottom: 1.3rem;
+}
+
+.input-icon {
+    position: absolute;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #9ca3af;
+    transition: .2s;
+    pointer-events: none;
+    z-index: 2;
+}
+
+    .input-icon.filled {
+        color: #3b82f6;
+    }
+
+/* 👉 Sửa ::deep để ăn vào InputText của Blazor */
+::deep .login-input {
+    width: 100%;
+    padding: .9rem 1rem .9rem 3rem; /* Padding trái lớn để né icon */
+    border-radius: 12px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    font-size: 1rem;
+    color: #1f2937;
+    outline: none;
+    transition: .25s;
+}
+
+    ::deep .login-input:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+    }
+
+/* Button */
+.btn {
+    width: 100%;
+    padding: .95rem 1.1rem;
+    border: none;
+    border-radius: 12px;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: white;
+    background: linear-gradient(135deg,#2563eb,#3b82f6);
+    cursor: pointer;
+    transition: .25s;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 12px rgba(37,99,235,.3);
+    margin-top: 1rem;
+}
+
+    .btn:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(37,99,235,.45);
+    }
+
+.login-error {
+    color: #ef4444;
+    font-size: .9rem;
+    margin-bottom: .5rem;
+    font-weight: 600;
+    text-align: left;
+    background: #fef2f2;
+    padding: 0.5rem;
+    border-radius: 8px;
+}
+
+.register-link {
+    margin-top: 1.5rem;
+    color: #4b5563;
+}
+
+    .register-link a {
+        font-weight: 700;
+        background: linear-gradient(90deg,#3b82f6,#60a5fa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        text-decoration: none;
+        filter: drop-shadow(0 0 4px #60a5fa);
+        transition: .25s;
+    }
+
+        .register-link a:hover {
+            filter: drop-shadow(0 0 8px #60a5fa);
+            animation: textShake .35s ease-in-out;
+        }
+
+.spinner {
+    border: 3px solid rgba(255,255,255,0.3);
+    border-radius: 50%;
+    border-top: 3px solid #fff;
+    width: 18px;
+    height: 18px;
+    animation: spin 1s linear infinite;
+}

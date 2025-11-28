@@ -1,0 +1,153 @@
+﻿@page "/login"
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.ComponentModel.DataAnnotations
+@using WebGhiHinh.Controllers
+@using WebGhiHinh.Services
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+@* Tắt Prerendering để đảm bảo tương tác JS hoạt động *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Đăng nhập</PageTitle>
+
+<div class="login-page">
+    <div class="tech-marquee-container">
+        <div class="tech-marquee-text">
+            @for (int i = 0; i < 12; i++) { <span>HOPLONG TECH</span> }
+        </div>
+    </div>
+
+    <div class="login-card @(isGlowing ? "glow-strong" : "")">
+        <div style="width: 55px; height: 55px; border-radius: 50%; background: rgba(59,130,246,.15); display: flex; justify-content: center; align-items: center; margin: 0 auto 1rem;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+        </div>
+
+        <h1 class="login-title">Đăng nhập</h1>
+
+        <EditForm Model="@loginModel" OnValidSubmit="HandleLogin" FormName="login">
+            <DataAnnotationsValidator />
+            
+            <div style="color: #ef4444; font-weight: bold; text-align: left; margin-bottom: 10px;">
+                <ValidationSummary />
+            </div>
+
+            <div class="input-group">
+                <svg class="input-icon @(!string.IsNullOrEmpty(loginModel.Username) ? "filled" : "")" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                <InputText @bind-Value="loginModel.Username" class="login-input" placeholder="Tên đăng nhập" @oninput="TriggerGlow" />
+            </div>
+
+            <div class="input-group">
+                <svg class="input-icon @(!string.IsNullOrEmpty(loginModel.Password) ? "filled" : "")" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"></path><circle cx="16.5" cy="7.5" r=".5"></circle></svg>
+                <InputText @bind-Value="loginModel.Password" type="password" class="login-input" placeholder="Mật khẩu" @oninput="TriggerGlow" />
+            </div>
+
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <p class="login-error" style="background: #fee2e2; padding: 10px; border-radius: 8px; border: 1px solid red;">
+                    @error
+                </p>
+            }
+
+            <button class="btn" type="submit" disabled="@loading">
+                @if (loading)
+                {
+                    <div class="spinner"></div> <span>Đang xử lý...</span>
+                }
+                else
+                {
+                    <span>Đăng nhập</span>
+                }
+            </button>
+        </EditForm>
+
+        <p class="register-link">
+            Chưa có tài khoản? <a href="/register">Đăng ký ngay</a>
+        </p>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private LoginDto loginModel { get; set; } = new LoginDto();
+
+    private bool loading = false;
+    private string error = "";
+    private bool isGlowing = false;
+
+    protected override void OnInitialized()
+    {
+        if (loginModel == null) loginModel = new LoginDto();
+    }
+
+    private async Task HandleLogin()
+    {
+        Console.WriteLine($"[DEBUG] Bắt đầu đăng nhập: {loginModel.Username}");
+        loading = true;
+        error = "";
+        StateHasChanged(); 
+
+        try
+        {
+            var response = await Http.PostAsJsonAsync("api/auth/login", loginModel);
+            Console.WriteLine($"[DEBUG] API Status Code: {response.StatusCode}");
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<LoginResponse>();
+                
+                Console.WriteLine("[DEBUG] Đang lưu Token...");
+                await JS.InvokeVoidAsync("localStorage.setItem", "token", result.access_token);
+                await JS.InvokeVoidAsync("localStorage.setItem", "username", result.username);
+                await JS.InvokeVoidAsync("localStorage.setItem", "role", result.role);
+
+                Console.WriteLine("[DEBUG] Cập nhật AuthState...");
+                if (AuthStateProvider is CustomAuthStateProvider customAuth)
+                {
+                    customAuth.MarkUserAsAuthenticated(result.access_token);
+                }
+
+                Console.WriteLine("[DEBUG] Chuyển hướng...");
+                await Task.Delay(100);
+                Nav.NavigateTo(result.role == "admin" ? "/admin" : "/scan", forceLoad: true);
+            }
+            else
+            {
+                var errorMsg = await response.Content.ReadAsStringAsync();
+                error = $"Đăng nhập thất bại ({response.StatusCode}): {errorMsg}";
+                Console.WriteLine($"[DEBUG] API Error: {errorMsg}");
+            }
+        }
+        catch (Exception ex)
+        {
+            if (ex is NavigationException) return;
+
+            error = $"Lỗi hệ thống: {ex.Message}";
+            Console.WriteLine($"[DEBUG] Exception: {ex}");
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void TriggerGlow()
+    {
+        isGlowing = true;
+        Task.Delay(300).ContinueWith(_ => InvokeAsync(() => { isGlowing = false; StateHasChanged(); }));
+    }
+
+    public class LoginDto 
+    { 
+        [Required(ErrorMessage = "Vui lòng nhập tên đăng nhập")]
+        public string Username { get; set; } = ""; 
+
+        [Required(ErrorMessage = "Vui lòng nhập mật khẩu")]
+        public string Password { get; set; } = ""; 
+    }
+    
+    public class LoginResponse { public string access_token { get; set; } public string username { get; set; } public string role { get; set; } }
+}

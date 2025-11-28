@@ -1,0 +1,42 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+
+    <!-- 1. CSS Bootstrap (CDN cho nhanh và ổn định) -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- 2. CSS toàn cục của ứng dụng -->
+    <link rel="stylesheet" href="app.css" />
+
+    <!-- 3. QUAN TRỌNG: CSS Bundle (Để load style riêng của từng page như Login, Register) -->
+    <link href="WebGhiHinh.styles.css" rel="stylesheet" />
+
+    <!-- Icon cho Tab trình duyệt (Optional) -->
+    <link rel="icon" type="image/png" href="favicon.png" />
+
+    <title>Hệ Thống Ghi Hình</title>
+    <HeadOutlet />
+</head>
+
+<body>
+    <!-- Router điều hướng trang -->
+    <Routes />
+
+    <!-- 4. Script cốt lõi của Blazor -->
+    <script src="_framework/blazor.web.js"></script>
+
+    <!-- 5. Thư viện hỗ trợ Quét QR (Dùng cho trang /scan) -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+    <!-- 6. Script xử lý Camera (File chúng ta vừa tạo) -->
+    <script src="js/camera.js"></script>
+
+    <!-- 7. Script Bootstrap (Optional - nếu dùng Modal/Dropdown của Bootstrap JS) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+
+</html>
