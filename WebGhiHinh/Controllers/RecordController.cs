@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using WebGhiHinh.Data;
 using WebGhiHinh.Models;
 using WebGhiHinh.Services;
+using System.Security.Claims;
 
 namespace WebGhiHinh.Controllers
 {
@@ -19,10 +20,9 @@ namespace WebGhiHinh.Controllers
             _ffmpegService = ffmpegService;
         }
 
-        // ==========================================
-        // 1. API BẮT ĐẦU GHI HÌNH (Quét QR)
-        // POST: api/record/scan
-        // ==========================================
+        // =====================================================
+        // 1) SCAN QR → Start or Stop Recording
+        // =====================================================
         [HttpPost("scan")]
         public async Task<IActionResult> StartScan([FromBody] ScanRequest request)
         {
@@ -31,19 +31,39 @@ namespace WebGhiHinh.Controllers
                 return BadRequest(new { message = "Thiếu thông tin QR hoặc RTSP URL" });
             }
 
+            string currentUserName = User.FindFirst(ClaimTypes.Name)?.Value ?? "System";
             string message = "";
 
-            // --- LOGIC 1: Kiểm tra xem TRẠM này có đang ghi video nào dở dang không? ---
-            // Tìm video log nào của trạm này mà chưa có EndTime
+            // Tìm video đang quay tại trạm
             var activeLog = await _context.VideoLogs
                 .FirstOrDefaultAsync(v => v.StationName == request.StationName && v.EndTime == null);
 
+            // -----------------------------------------------------
+            // CASE 1: QUÉT LẠI ĐÚNG MÃ → STOP VIDEO
+            // -----------------------------------------------------
+            if (activeLog != null && activeLog.QrCode == request.QrCode)
+            {
+                _ffmpegService.StopRecording(request.StationName);
+
+                activeLog.EndTime = DateTime.Now;
+                _context.VideoLogs.Update(activeLog);
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    action = "stop",
+                    message = $"Đã dừng ghi hình mã {request.QrCode}",
+                    recording_qr = request.QrCode
+                });
+            }
+
+            // -----------------------------------------------------
+            // CASE 2: CÓ VIDEO CŨ (KHÁC MÃ) → STOP CŨ, START MỚI
+            // -----------------------------------------------------
             if (activeLog != null)
             {
-                // Nếu đang ghi mã khác -> Dừng lại trước
-                bool stopped = _ffmpegService.StopRecording(activeLog.QrCode);
+                _ffmpegService.StopRecording(activeLog.QrCode);
 
-                // Cập nhật EndTime vào DB
                 activeLog.EndTime = DateTime.Now;
                 _context.VideoLogs.Update(activeLog);
                 await _context.SaveChangesAsync();
@@ -51,21 +71,25 @@ namespace WebGhiHinh.Controllers
                 message += $"Đã dừng mã cũ ({activeLog.QrCode}). ";
             }
 
-            // --- LOGIC 2: Bắt đầu ghi hình MỚI ---
+            // -----------------------------------------------------
+            // CASE 3: KHÔNG TRÙNG MÃ → BẮT ĐẦU VIDEO MỚI
+            // -----------------------------------------------------
             try
             {
-                // Gọi Service để chạy FFmpeg
-                string fileName = _ffmpegService.StartRecording(request.RtspUrl, request.QrCode, request.StationName);
+                string relativeFilePath = _ffmpegService.StartRecording(
+                    request.RtspUrl,
+                    request.QrCode,
+                    request.StationName,
+                    currentUserName
+                );
 
-                // Lưu vào Database
                 var newLog = new VideoLog
                 {
                     QrCode = request.QrCode,
                     StationName = request.StationName,
-                    FilePath = fileName,
+                    FilePath = relativeFilePath,
                     StartTime = DateTime.Now,
-                    RecordedBy = "System", // Hoặc lấy từ Token User nếu đã làm Auth
-                    CameraId = null // Bạn có thể query để lấy CameraId nếu cần
+                    RecordedBy = currentUserName
                 };
 
                 _context.VideoLogs.Add(newLog);
@@ -84,62 +108,52 @@ namespace WebGhiHinh.Controllers
             }
         }
 
-        // ==========================================
-        // 2. API DỪNG GHI HÌNH (Thủ công hoặc Rời trạm)
-        // POST: api/record/stop
-        // ==========================================
+        // =====================================================
+        // 2) STOP RECORDING (manual)
+        // =====================================================
         [HttpPost("stop")]
         public async Task<IActionResult> StopScan([FromBody] StopRequest request)
         {
-            // Tìm log đang chạy trong DB
             var activeLog = await _context.VideoLogs
                 .FirstOrDefaultAsync(v => v.QrCode == request.QrCode && v.EndTime == null);
 
-            if (activeLog == null)
-            {
-                return NotFound(new { message = "Không tìm thấy video đang ghi cho mã này." });
-            }
-
-            // Gọi Service dừng tiến trình FFmpeg
             _ffmpegService.StopRecording(request.QrCode);
 
-            // Update DB
-            activeLog.EndTime = DateTime.Now;
-            _context.VideoLogs.Update(activeLog);
-            await _context.SaveChangesAsync();
+            if (activeLog != null)
+            {
+                activeLog.EndTime = DateTime.Now;
+                _context.VideoLogs.Update(activeLog);
+                await _context.SaveChangesAsync();
+            }
 
-            return Ok(new { action = "stop", message = "Đã dừng ghi hình." });
+            return Ok(new { action = "stop", message = $"Đã dừng ghi hình mã {request.QrCode}" });
         }
 
-        // ==========================================
-        // 3. API LẤY TRẠNG THÁI (Để React hiển thị đèn đỏ)
-        // GET: api/record/recording-status
-        // ==========================================
+        // =====================================================
+        // 3) Check trạm đang quay mã nào
+        // =====================================================
         [HttpGet("recording-status")]
         public async Task<IActionResult> GetRecordingStatus()
         {
-            // Lấy danh sách tất cả các video chưa kết thúc (EndTime là null)
             var activeVideos = await _context.VideoLogs
                 .Where(v => v.EndTime == null)
                 .Select(v => new { v.StationName, v.QrCode })
                 .ToListAsync();
 
-            // Chuyển đổi thành Dictionary: { "Tram 1": "QR123", "Tram 2": "QR456" }
-            // Để Frontend dễ dàng map status[station.name]
-            var statusDict = new Dictionary<string, string>();
-            foreach (var item in activeVideos)
+            var status = new Dictionary<string, string>();
+
+            foreach (var v in activeVideos)
             {
-                if (!string.IsNullOrEmpty(item.StationName))
-                {
-                    statusDict[item.StationName] = item.QrCode;
-                }
+                if (!string.IsNullOrEmpty(v.StationName))
+                    status[v.StationName] = v.QrCode;
             }
 
-            return Ok(statusDict);
+            return Ok(status);
         }
     }
 
-    // --- CÁC CLASS DTO (Mô hình dữ liệu gửi lên) ---
+
+    // DTOs
     public class ScanRequest
     {
         public string QrCode { get; set; }

@@ -1,93 +1,115 @@
 ﻿using System.Diagnostics;
+using System.Collections.Concurrent;
 
 namespace WebGhiHinh.Services
 {
     public class FfmpegService
     {
-        // Lưu trữ các tiến trình đang chạy: Key = Mã QR (hoặc IP Camera), Value = Process
-        private static Dictionary<string, Process> _activeProcesses = new Dictionary<string, Process>();
+        // Key = stationName → mỗi trạm chỉ có 1 tiến trình FFmpeg
+        private static readonly ConcurrentDictionary<string, Process> _activeProcesses = new();
 
-        // Thư mục lưu video
-        private readonly string _outputFolder = @"C:\GhiHinhVideos"; // Bạn có thể đổi đường dẫn này
+        private readonly string _outputFolder = @"C:\GhiHinhVideos";
 
         public FfmpegService()
         {
             if (!Directory.Exists(_outputFolder))
-            {
                 Directory.CreateDirectory(_outputFolder);
-            }
         }
 
-        // Bắt đầu ghi hình
-        public string StartRecording(string rtspUrl, string qrCode, string cameraName)
+        public string StartRecording(string rtspUrl, string qrCode, string stationName, string userName)
         {
-            // 1. Kiểm tra nếu đang ghi QR này rồi thì thôi
-            if (_activeProcesses.ContainsKey(qrCode))
+            string stationKey = stationName.ToLower();
+
+            // Nếu trạm này đang ghi → dừng lại
+            if (_activeProcesses.ContainsKey(stationKey))
             {
-                return "Đang ghi hình cho mã này rồi!";
+                StopRecording(stationName);
             }
 
-            // 2. Tạo tên file: VIDEO_MaQR_NgayGio.mp4
-            string fileName = $"VIDEO_{qrCode}_{DateTime.Now:yyyyMMdd_HHmmss}.mp4";
-            string filePath = Path.Combine(_outputFolder, fileName);
+            string stationFolder = Path.Combine(_outputFolder, stationName);
+            Directory.CreateDirectory(stationFolder);
 
-            // 3. Cấu hình lệnh FFmpeg
-            // Lưu ý: Đảm bảo bạn đã copy file ffmpeg.exe vào thư mục gốc của dự án
-            var processStartInfo = new ProcessStartInfo
+            string safeQr = qrCode.Replace("/", "_").Replace("\\", "_").Replace(":", "");
+            string safeUser = userName.Replace("/", "_").Replace("\\", "_");
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+
+            string fileName = $"{safeUser}_{safeQr}_{timestamp}.mp4";
+            string fullPath = Path.Combine(stationFolder, fileName);
+
+            string ffmpegPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ffmpeg.exe");
+            if (!File.Exists(ffmpegPath))
+                ffmpegPath = Path.Combine(Directory.GetCurrentDirectory(), "ffmpeg.exe");
+
+            string arguments =
+                $"-y -rtsp_transport tcp -i \"{rtspUrl}\" " +
+                $"-c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac " +
+                $"\"{fullPath}\"";
+
+            var psi = new ProcessStartInfo
             {
-                FileName = "ffmpeg.exe",
-                // Lệnh: -rtsp_transport tcp (để ổn định) -i (input) -c copy (không encode lại cho nhẹ CPU)
-                Arguments = $"-rtsp_transport tcp -i \"{rtspUrl}\" -c copy -y \"{filePath}\"",
+                FileName = ffmpegPath,
+                Arguments = arguments,
+                RedirectStandardInput = true,      // FIX — quan trọng nhất!
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
-                CreateNoWindow = true // Chạy ngầm, không hiện cửa sổ đen
+                CreateNoWindow = true
             };
 
-            // 4. Khởi chạy tiến trình
             try
             {
-                Process process = new Process { StartInfo = processStartInfo };
-                process.Start();
+                Process proc = new Process { StartInfo = psi };
+                proc.Start();
+                proc.BeginErrorReadLine();
 
-                // Lưu tiến trình vào bộ nhớ để sau này còn tắt
-                _activeProcesses.Add(qrCode, process);
+                _activeProcesses.TryAdd(stationKey, proc);
 
-                Console.WriteLine($"[INFO] Bắt đầu ghi hình: {qrCode}");
-                return fileName; // Trả về tên file để lưu vào Database
+                Console.WriteLine($"[INFO] Recording started at {stationName}: {fileName}");
+
+                return Path.Combine(stationName, fileName).Replace("\\", "/");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] Không thể bật FFmpeg: {ex.Message}");
+                Console.WriteLine($"[ERROR] Cannot start FFmpeg: {ex.Message}");
                 throw;
             }
         }
 
-        // Dừng ghi hình
-        public bool StopRecording(string qrCode)
+        public bool StopRecording(string stationName)
         {
-            if (_activeProcesses.ContainsKey(qrCode))
+            string stationKey = stationName.ToLower();
+
+            if (_activeProcesses.TryRemove(stationKey, out var proc))
             {
                 try
                 {
-                    var process = _activeProcesses[qrCode];
-                    if (!process.HasExited)
+                    if (!proc.HasExited)
                     {
-                        // Gửi lệnh 'q' để dừng mềm hoặc Kill để dừng cứng
-                        process.Kill();
-                        process.WaitForExit();
+                        try
+                        {
+                            using (var sw = proc.StandardInput)
+                            {
+                                if (sw.BaseStream.CanWrite)
+                                    sw.WriteLine("q");    // SAFE close
+                            }
+                        }
+                        catch { }
+
+                        if (!proc.WaitForExit(1500))
+                            proc.Kill();
                     }
-                    _activeProcesses.Remove(qrCode);
-                    Console.WriteLine($"[INFO] Đã dừng ghi hình: {qrCode}");
+
+                    Console.WriteLine($"[INFO] Recording stopped at {stationName}");
                     return true;
                 }
-                catch (Exception ex)
+                catch
                 {
-                    Console.WriteLine($"[ERROR] Lỗi khi dừng ghi: {ex.Message}");
+                    try { proc.Kill(); } catch { }
                     return false;
                 }
             }
-            return false; // Không tìm thấy tiến trình nào đang chạy với mã này
+
+            return false;
         }
     }
 }

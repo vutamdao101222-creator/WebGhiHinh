@@ -1,0 +1,193 @@
+﻿@page "/live"
+@using Microsoft.AspNetCore.Authorization
+@using WebGhiHinh.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@using WebGhiHinh.Services
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthStateProvider
+
+@* 👇 Tắt prerender để đảm bảo code chạy trên browser và lấy được URL chính xác *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Xem Camera Trực Tiếp</PageTitle>
+
+<div class="live-container fade-in">
+    <header class="page-header">
+        <h1>🎥 Camera Trực Tiếp</h1>
+        <div class="status-badge">
+            <span class="live-dot"></span> Live
+        </div>
+        <!-- Hiển thị IP đang dùng để debug -->
+        <small class="text-muted" style="font-size: 0.8rem;">Stream Server: @StreamBaseUrl</small>
+    </header>
+
+    @if (loading)
+    {
+        <div class="spinner-container">
+            <div class="spinner"></div>
+            <p>Đang tải danh sách camera...</p>
+        </div>
+    }
+    else if (cameras.Count == 0)
+    {
+        <div class="empty-state">
+            <p>Chưa có camera nào được kết nối.</p>
+            <AuthorizeView Roles="admin">
+                <a href="/admin" class="btn btn-primary">Quản lý Camera</a>
+            </AuthorizeView>
+        </div>
+    }
+    else
+    {
+        <div class="camera-grid">
+            <!-- Camera Mặc định -->
+            <div class="camera-card">
+                <div class="card-header">
+                    <span class="cam-name">🔥 Cam1 (Mặc định)</span>
+                    <span class="badge">Default</span>
+                </div>
+                <div class="video-wrapper">
+                    <!-- 👇 SỬA Ở ĐÂY: Dùng biến StreamBaseUrl thay vì localhost -->
+                    <iframe src="@($"{StreamBaseUrl}/cam1/")" class="video-frame" allow="autoplay" scrolling="no"></iframe>
+                </div>
+                <div class="card-footer">
+                    <code>Mặc định</code>
+                </div>
+            </div>
+
+            <!-- Các Camera khác -->
+            @foreach (var cam in cameras)
+            {
+                <div class="camera-card">
+                    <div class="card-header">
+                        <span class="cam-name">📷 @cam.Name</span>
+                        @if (IsRecording(cam.Name))
+                        {
+                            <span class="badge-rec">REC</span>
+                        }
+                    </div>
+                    <div class="video-wrapper">
+                        <!-- 👇 SỬA Ở ĐÂY: Dùng biến StreamBaseUrl -->
+                        <iframe src="@($"{StreamBaseUrl}/{cam.Name}/")" class="video-frame" allow="autoplay" scrolling="no"></iframe>
+                    </div>
+                    <div class="card-footer">
+                        <code>@cam.RtspUrl</code>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<Camera> cameras = new();
+    private Dictionary<string, string> recordingStatus = new();
+    private bool loading = true;
+    private System.Threading.Timer? timer;
+
+    // 👇 Biến lưu địa chỉ stream (mặc định là localhost để phòng hờ)
+    private string StreamBaseUrl = "http://localhost:8889";
+
+    protected override void OnInitialized()
+    {
+        // 👇 LOGIC TỰ ĐỘNG LẤY IP:
+        // Khi người dùng truy cập http://192.168.1.10:3000, Nav.BaseUri sẽ chứa IP đó.
+        // Ta lấy IP đó và ghép với cổng 8889 của MediaMTX.
+        try
+        {
+            var uri = new Uri(Nav.BaseUri);
+            // uri.Host sẽ là "192.168.1.10" hoặc tên miền
+            StreamBaseUrl = $"http://{uri.Host}:8889";
+        }
+        catch
+        {
+            // Nếu lỗi thì giữ nguyên localhost
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            if (AuthStateProvider is CustomAuthStateProvider customAuth)
+            {
+                await customAuth.LoadUserFromLocalStorage();
+            }
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            if (!authState.User.Identity.IsAuthenticated)
+            {
+                Nav.NavigateTo("/login");
+                return;
+            }
+
+            await LoadCameras();
+            timer = new System.Threading.Timer(async _ => await CheckRecordingStatus(), null, 0, 5000);
+        }
+    }
+
+    private async Task LoadCameras()
+    {
+        try
+        {
+            await AttachToken();
+            cameras = await Http.GetFromJsonAsync<List<Camera>>("api/cameras") ?? new();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Lỗi: {ex.Message}");
+            if (ex.Message.Contains("401"))
+            {
+                Nav.NavigateTo("/login");
+            }
+        }
+        finally
+        {
+            loading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CheckRecordingStatus()
+    {
+        try
+        {
+            await AttachToken();
+            var status = await Http.GetFromJsonAsync<Dictionary<string, string>>("api/record/recording-status");
+            if (status != null)
+            {
+                recordingStatus = status;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch { }
+    }
+
+    private bool IsRecording(string camName)
+    {
+        return recordingStatus.Keys.Any(k => k.Contains(camName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task AttachToken()
+    {
+        try
+        {
+            var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
+            if (!string.IsNullOrEmpty(token))
+            {
+                Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error retrieving token: {ex.Message}");
+        }
+    }
+
+    public void Dispose()
+    {
+        timer?.Dispose();
+    }
+}

@@ -1,21 +1,22 @@
 ﻿@page "/admin"
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Web
 @using WebGhiHinh.Models
 @using WebGhiHinh.Controllers
 @using Microsoft.AspNetCore.Components.Authorization
+@using System.IO
 @inject HttpClient Http
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthStateProvider
 
-@* 👇 Tắt Prerendering để đảm bảo code JS chạy ổn định *@
+@* Tắt Prerendering *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 <PageTitle>Admin Dashboard</PageTitle>
 
 <AuthorizeView Roles="admin">
     <Authorized>
-        <!-- NẾU LÀ ADMIN: Hiển thị trang quản trị -->
         <div class="page-container fade-in">
             <div class="page-header">
                 <h1>🛠️ Admin Dashboard</h1>
@@ -27,10 +28,8 @@
                 </div>
             </div>
 
-            <!-- SECTION 1: QUẢN LÝ CAMERA -->
             <div class="page-section">
                 <h2 class="section-title">📷 Quản lý Camera</h2>
-
                 <div class="camera-form">
                     <input @bind="newCamName" class="admin-input" placeholder="Tên Camera (VD: Cam1)" />
                     <input @bind="newCamRtsp" class="admin-input" placeholder="RTSP URL (rtsp://...)" />
@@ -72,7 +71,6 @@
                 </ul>
             </div>
 
-            <!-- SECTION 2: QUẢN LÝ VIDEO -->
             <div class="page-section">
                 <div class="section-header">
                     <h2 class="section-title">🎬 Quản lý Video</h2>
@@ -109,6 +107,9 @@
                                         <td>@v.StationName</td>
                                         <td>@v.StartTime.ToString("dd/MM/yyyy HH:mm")</td>
                                         <td>
+                                            <button class="btn btn-info btn-sm text-white" @onclick="() => ViewVideo(v)" style="margin-right:5px;">
+                                                👁️ Xem
+                                            </button>
                                             <button class="btn btn-danger btn-sm" @onclick="() => DeleteVideo(v.Id)">Xóa</button>
                                         </td>
                                     </tr>
@@ -119,9 +120,34 @@
                 }
             </div>
         </div>
+
+        @if (showVideoModal)
+        {
+            <div class="modal-backdrop fade show"></div>
+            <div class="modal fade show d-block" tabindex="-1">
+                <div class="modal-dialog modal-lg modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">🎬 Xem lại: @currentVideoTitle</h5>
+                            <button type="button" class="btn-close" @onclick="CloseVideoModal"></button>
+                        </div>
+                        <div class="modal-body text-center bg-black">
+                            <video controls autoplay style="width: 100%; max-height: 70vh;">
+                                <source src="@currentVideoUrl" type="video/mp4">
+                                Trình duyệt của bạn không hỗ trợ thẻ video.
+                            </video>
+                        </div>
+                        <div class="modal-footer">
+                            <a href="@currentVideoUrl" download="@currentVideoTitle" class="btn btn-primary">⬇️ Tải về</a>
+                            <button type="button" class="btn btn-secondary" @onclick="CloseVideoModal">Đóng</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
     </Authorized>
     <NotAuthorized>
-        <!-- NẾU KHÔNG PHẢI ADMIN: Chặn và chuyển hướng -->
         <div class="text-center mt-5" style="padding-top: 50px;">
             <h3 class="text-danger">⛔ Truy cập bị từ chối</h3>
             <p>Bạn không có quyền truy cập trang này.</p>
@@ -143,12 +169,15 @@
 
     private bool isBusy = false;
 
-    // Sử dụng OnAfterRenderAsync để đảm bảo Token được lấy từ LocalStorage
+    // --- State cho Video Modal ---
+    private bool showVideoModal = false;
+    private string currentVideoUrl = "";
+    private string currentVideoTitle = "";
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            // Kiểm tra quyền thủ công (để chắc chắn)
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
 
@@ -158,11 +187,7 @@
                 return;
             }
 
-            if (!user.IsInRole("admin"))
-            {
-                // Nếu đã login nhưng không phải admin -> Ở lại để hiện thông báo NotAuthorized
-                return;
-            }
+            if (!user.IsInRole("admin")) return;
 
             await LoadData();
             StateHasChanged();
@@ -183,11 +208,40 @@
         }
     }
 
-    // --- CAMERA LOGIC ---
+    // --- LOGIC XEM VIDEO ---
+    private void ViewVideo(VideoLog video)
+    {
+        try
+        {
+            // Logic: Đường dẫn vật lý C:\GhiHinhVideos\may1\abc.mp4
+            // -> Đường dẫn web: /videos/may1/abc.mp4
+
+            // Lấy tên file từ đường dẫn đầy đủ
+            var fileName = Path.GetFileName(video.FilePath);
+
+            // Tạo URL (Giả sử bạn đã config UseStaticFiles trỏ /videos vào C:\GhiHinhVideos)
+            // Lưu ý: StationName phải khớp với tên thư mục
+            currentVideoUrl = $"videos/{video.StationName}/{fileName}";
+
+            currentVideoTitle = $"{video.QrCode} ({video.StationName})";
+            showVideoModal = true;
+        }
+        catch
+        {
+            // Xử lý nếu đường dẫn lỗi
+        }
+    }
+
+    private void CloseVideoModal()
+    {
+        showVideoModal = false;
+        currentVideoUrl = "";
+    }
+
+    // --- CAMERA LOGIC (Giữ nguyên) ---
     private async Task AddCamera()
     {
         if (string.IsNullOrWhiteSpace(newCamName) || string.IsNullOrWhiteSpace(newCamRtsp)) return;
-
         isBusy = true;
         try
         {
@@ -225,7 +279,7 @@
         await LoadData();
     }
 
-    // --- VIDEO LOGIC ---
+    // --- VIDEO LOGIC (Delete & Export) ---
     private async Task DeleteVideo(int id)
     {
         if (!await JS.InvokeAsync<bool>("confirm", "Xóa video này?")) return;
@@ -244,8 +298,6 @@
             {
                 var fileContent = await response.Content.ReadAsByteArrayAsync();
                 var fileName = $"BaoCao_Video_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
-
-                // Chuyển byte[] sang Base64 để gửi xuống JS
                 var base64 = Convert.ToBase64String(fileContent);
                 await JS.InvokeVoidAsync("downloadFileFromStream", fileName, base64);
             }

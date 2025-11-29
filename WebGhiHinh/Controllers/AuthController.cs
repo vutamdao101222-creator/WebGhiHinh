@@ -26,23 +26,19 @@ namespace WebGhiHinh.Controllers
         [HttpPost("register")]
         public async Task<IActionResult> Register(UserRegisterDto request)
         {
-            // 1. Kiểm tra tài khoản tồn tại
             if (await _context.Users.AnyAsync(u => u.Username == request.Username))
             {
                 return BadRequest("Tài khoản đã tồn tại.");
             }
 
-            // 2. Tạo User và GÁN ĐỦ DỮ LIỆU
             var user = new User
             {
                 Username = request.Username,
-                PasswordHash = request.Password,
+                PasswordHash = request.Password, // Lưu ý: Nên mã hóa mật khẩu trong thực tế
                 Role = "user",
-
-                // 👉 PHẦN QUAN TRỌNG BẠN ĐANG THIẾU 👇
-                FullName = request.FullName,       // Lưu Họ tên
-                EmployeeCode = request.EmployeeCode, // Lưu Mã NV
-                Address = request.Address          // Lưu Địa chỉ
+                FullName = request.FullName,
+                EmployeeCode = request.EmployeeCode,
+                Address = request.Address
             };
 
             _context.Users.Add(user);
@@ -55,22 +51,28 @@ namespace WebGhiHinh.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login(UserLoginDto request)
         {
-            var user = await _context.Users
-                .FirstOrDefaultAsync(u => u.Username == request.Username && u.PasswordHash == request.Password);
-
-            if (user == null)
+            try
             {
-                return Unauthorized("Sai tên đăng nhập hoặc mật khẩu.");
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == request.Username && u.PasswordHash == request.Password);
+
+                if (user == null)
+                {
+                    return Unauthorized("Sai tên đăng nhập hoặc mật khẩu.");
+                }
+
+                string token = CreateToken(user);
+
+                return Ok(new
+                {
+                    access_token = token,
+                    username = user.Username,
+                    role = user.Role
+                });
             }
-
-            string token = CreateToken(user);
-
-            return Ok(new
+            catch (Exception ex)
             {
-                access_token = token,
-                username = user.Username,
-                role = user.Role
-            });
+                return BadRequest(ex.InnerException?.Message ?? ex.Message);
+            }
         }
 
         private string CreateToken(User user)
@@ -79,12 +81,13 @@ namespace WebGhiHinh.Controllers
             var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(keyStr));
             var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
+            // 👇 SỬA Ở ĐÂY: Dùng chuỗi thường ("role", "name") thay vì ClaimTypes.Role (URL dài)
+            // Để khớp với cấu hình RoleClaimType = "role" trong Program.cs
             var claims = new[]
             {
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new Claim(ClaimTypes.Name, user.Username),
-                new Claim(ClaimTypes.Role, user.Role),
-                // Có thể lưu thêm tên đầy đủ vào Token để dùng sau này
+                new Claim("sub", user.Id.ToString()),    // ID người dùng (Subject)
+                new Claim("name", user.Username),        // Tên đăng nhập
+                new Claim("role", user.Role),            // Quyền (admin/user)
                 new Claim("FullName", user.FullName ?? "")
             };
 
@@ -98,15 +101,18 @@ namespace WebGhiHinh.Controllers
         }
     }
 
-    // 👉 DTO PHẢI CÓ ĐỦ CÁC TRƯỜNG NÀY THÌ MỚI NHẬN ĐƯỢC DỮ LIỆU TỪ FORM
     public class UserRegisterDto
     {
         public string Username { get; set; }
         public string Password { get; set; }
-        public string FullName { get; set; }     // Mới thêm
-        public string EmployeeCode { get; set; } // Mới thêm
-        public string Address { get; set; }      // Mới thêm
+        public string FullName { get; set; }
+        public string EmployeeCode { get; set; }
+        public string Address { get; set; }
     }
 
-    public class UserLoginDto { public string Username { get; set; } public string Password { get; set; } }
+    public class UserLoginDto
+    {
+        public string Username { get; set; }
+        public string Password { get; set; }
+    }
 }

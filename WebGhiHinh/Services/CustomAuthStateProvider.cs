@@ -7,64 +7,115 @@ namespace WebGhiHinh.Services
 {
     public class CustomAuthStateProvider : AuthenticationStateProvider
     {
-        private readonly IJSRuntime _jsRuntime;
+        private readonly IJSRuntime _js;
 
-        public CustomAuthStateProvider(IJSRuntime jsRuntime)
+        // 👇 BIẾN NÀY QUAN TRỌNG: Lưu giữ người dùng hiện tại trong RAM
+        private ClaimsPrincipal _currentUser = new ClaimsPrincipal(new ClaimsIdentity());
+
+        public CustomAuthStateProvider(IJSRuntime js)
         {
-            _jsRuntime = jsRuntime;
+            _js = js;
         }
 
-        // Blazor gọi hàm này để biết "User hiện tại là ai?"
-        public override async Task<AuthenticationState> GetAuthenticationStateAsync()
+        // 1. Hàm này được gọi mỗi khi chuyển trang để kiểm tra quyền
+        public override Task<AuthenticationState> GetAuthenticationStateAsync()
+        {
+            // Trả về người dùng đang lưu trong biến _currentUser thay vì luôn trả về Anonymous
+            return Task.FromResult(new AuthenticationState(_currentUser));
+        }
+
+        // 2. Load token từ LocalStorage (Dùng khi F5 trang)
+        public async Task LoadUserFromLocalStorage()
         {
             try
             {
-                // 1. Lấy token từ LocalStorage của trình duyệt
-                var token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "token");
+                var token = await _js.InvokeAsync<string>("auth.get");
 
-                if (string.IsNullOrEmpty(token))
+                if (!string.IsNullOrEmpty(token))
                 {
-                    // Không có token -> Trả về user vô danh (Anonymous)
-                    return new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
+                    // Giải mã token và cập nhật biến _currentUser
+                    _currentUser = BuildUserFromToken(token);
                 }
-
-                // 2. Có token -> Giải mã để lấy thông tin (Username, Role...)
-                var identity = new ClaimsIdentity(ParseClaimsFromJwt(token), "jwt");
-                var user = new ClaimsPrincipal(identity);
-
-                return new AuthenticationState(user);
+                else
+                {
+                    // Nếu không có token -> Về ẩn danh
+                    _currentUser = new ClaimsPrincipal(new ClaimsIdentity());
+                }
             }
             catch
             {
-                // Gặp lỗi (ví dụ token sai định dạng) -> Coi như chưa đăng nhập
-                return new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
+                // Lỗi JS (do prerender) -> Bỏ qua
             }
+
+            // Thông báo cho toàn bộ App biết trạng thái đã thay đổi
+            NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentUser)));
         }
 
-        // Hàm này để trang Login gọi khi đăng nhập thành công
-        public void MarkUserAsAuthenticated(string token)
+        // 3. Đăng nhập (Gọi từ LoginPage)
+        public async Task MarkUserAsAuthenticated(string token)
         {
-            var identity = new ClaimsIdentity(ParseClaimsFromJwt(token), "jwt");
-            var user = new ClaimsPrincipal(identity);
+            // Cập nhật biến _currentUser ngay lập tức
+            _currentUser = BuildUserFromToken(token);
 
-            // QUAN TRỌNG: Thông báo cho toàn bộ app biết trạng thái đã thay đổi
-            NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(user)));
+            // Thông báo cập nhật giao diện
+            NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentUser)));
+
+            // Lưu xuống LocalStorage (phòng hờ code JS bên ngoài chưa chạy)
+            try { await _js.InvokeVoidAsync("auth.set", token); } catch { }
         }
 
-        // Hàm này để gọi khi đăng xuất
-        public void MarkUserAsLoggedOut()
+        // 4. Đăng xuất
+        public async Task MarkUserAsLoggedOut()
         {
-            var anonymous = new ClaimsPrincipal(new ClaimsIdentity());
-            NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(anonymous)));
+            _currentUser = new ClaimsPrincipal(new ClaimsIdentity());
+
+            try { await _js.InvokeVoidAsync("auth.clear"); } catch { }
+
+            NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentUser)));
         }
 
-        // Logic giải mã JWT (để lấy claims mà không cần thư viện nặng)
-        private IEnumerable<Claim> ParseClaimsFromJwt(string jwt)
+        // ==========================
+        // ===== Helper Methods =====
+        // ==========================
+
+        private ClaimsPrincipal BuildUserFromToken(string token)
         {
-            var payload = jwt.Split('.')[1];
+            var claims = ParseClaimsFromJwt(token);
+            var identity = new ClaimsIdentity(claims, "jwt"); // "jwt" là authentication type, bắt buộc phải có
+            return new ClaimsPrincipal(identity);
+        }
+
+        private IEnumerable<Claim> ParseClaimsFromJwt(string token)
+        {
+            var claims = new List<Claim>();
+            var payload = token.Split('.')[1];
             var jsonBytes = ParseBase64WithoutPadding(payload);
             var keyValuePairs = JsonSerializer.Deserialize<Dictionary<string, object>>(jsonBytes);
-            return keyValuePairs.Select(kvp => new Claim(kvp.Key, kvp.Value.ToString()));
+
+            foreach (var kvp in keyValuePairs)
+            {
+                string key = kvp.Key.ToLower();
+                object value = kvp.Value;
+
+                // Fix Role
+                if (key == "role") key = ClaimTypes.Role;
+                else if (key == "nameid") key = ClaimTypes.NameIdentifier;
+                else if (key == "unique_name" || key == "name") key = ClaimTypes.Name;
+
+                // Xử lý trường hợp Role là mảng JSON []
+                if (value is JsonElement element && element.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        claims.Add(new Claim(key, item.ToString()));
+                    }
+                }
+                else
+                {
+                    claims.Add(new Claim(key, value?.ToString() ?? ""));
+                }
+            }
+            return claims;
         }
 
         private byte[] ParseBase64WithoutPadding(string base64)

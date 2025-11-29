@@ -1,0 +1,122 @@
+﻿@page "/admin/stations"
+@using Microsoft.AspNetCore.Authorization
+@using WebGhiHinh.Models
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Quản lý Trạm</PageTitle>
+
+<div class="page-container fade-in">
+    <h1>🏭 Quản lý Trạm làm việc</h1>
+
+    <!-- Form Tạo Trạm -->
+    <div class="station-form">
+        <input @bind="newStationName" class="admin-input" placeholder="Tên Trạm (VD: Trạm 1)" />
+        <select @bind="selectedCamId" class="admin-select">
+            <option value="">-- Chọn Camera --</option>
+            @foreach (var cam in unassignedCameras)
+            {
+                <option value="@cam.Id">@cam.Name (@cam.RtspUrl)</option>
+            }
+        </select>
+        <button class="btn btn-primary" @onclick="CreateStation">Tạo Trạm</button>
+    </div>
+
+    <!-- Danh sách Trạm -->
+    <div class="station-list">
+        @foreach (var st in stations)
+        {
+            <div class="station-card">
+                <div class="st-header">
+                    <h3>@st.Name</h3>
+                    <div class="st-actions">
+                        @if (st.CurrentUserId != null)
+                        {
+                            <button class="btn btn-warning btn-sm" @onclick="() => ForceRelease(st.Id)">
+                                ⚡ Giải phóng
+                            </button>
+                        }
+                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteStation(st.Id)">Xóa</button>
+                    </div>
+                </div>
+                <div class="st-body">
+                    <p><strong>Camera:</strong> @(st.Camera?.Name ?? "Chưa gán")</p>
+                    <p>
+                        <strong>Trạng thái:</strong>
+                        @if (st.CurrentUserId != null)
+                        {
+                            <span class="status-busy">🔴 Đang bận (@st.CurrentUser?.Username)</span>
+                        }
+                        else
+                        {
+                            <span class="status-free">🟢 Trống</span>
+                        }
+                    </p>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<Station> stations = new();
+    private List<Camera> unassignedCameras = new();
+    private string newStationName = "";
+    private int? selectedCamId;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            await AttachToken();
+            stations = await Http.GetFromJsonAsync<List<Station>>("api/station") ?? new();
+            unassignedCameras = await Http.GetFromJsonAsync<List<Camera>>("api/station/unassigned-cameras") ?? new();
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    private async Task CreateStation()
+    {
+        if (string.IsNullOrWhiteSpace(newStationName)) return;
+
+        try
+        {
+            await AttachToken();
+            await Http.PostAsJsonAsync("api/station", new { Name = newStationName, CameraId = selectedCamId });
+            newStationName = ""; selectedCamId = null;
+            await LoadData();
+        }
+        catch { }
+    }
+
+    private async Task DeleteStation(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Xóa trạm này?")) return;
+        await AttachToken();
+        await Http.DeleteAsync($"api/station/{id}");
+        await LoadData();
+    }
+
+    private async Task ForceRelease(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Buộc người dùng rời trạm?")) return;
+        await AttachToken();
+        await Http.PostAsJsonAsync("api/station/force-release", new { StationId = id });
+        await LoadData();
+    }
+
+    private async Task AttachToken()
+    {
+        var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
+        if (!string.IsNullOrEmpty(token))
+            Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+    }
+}
