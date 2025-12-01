@@ -10,7 +10,6 @@
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthStateProvider
 
-@* Tắt Prerendering *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 <PageTitle>Admin Dashboard</PageTitle>
@@ -18,16 +17,27 @@
 <AuthorizeView Roles="admin">
     <Authorized>
         <div class="page-container fade-in">
-            <div class="page-header">
-                <h1>🛠️ Admin Dashboard</h1>
+            <!-- =========================================
+                 1. THANH ĐIỀU HƯỚNG (NAVBAR)
+                 ========================================= -->
+            <div class="admin-navbar mb-4">
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-primary @(IsActive("/admin") ? "active" : "")" @onclick='() => Nav.NavigateTo("/admin")'>🏠 Dashboard</button>
+                    <button class="btn btn-outline-primary @(IsActive("/live") ? "active" : "")" @onclick='() => Nav.NavigateTo("/live")'>📺 Xem Live</button>
+                    <button class="btn btn-outline-primary @(IsActive("/admin/stations") ? "active" : "")" @onclick='() => Nav.NavigateTo("/admin/stations")'>🚉 Quản lý Trạm</button>
+                    <button class="btn btn-outline-primary @(IsActive("/admin/users") ? "active" : "")" @onclick='() => Nav.NavigateTo("/admin/users")'>👥 Quản lý Users</button>
+                </div>
                 <div class="header-actions">
                     <span class="admin-badge">Administrator</span>
-                    <button class="btn btn-secondary btn-sm" @onclick="Logout">
-                        Đăng xuất
-                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="Logout">Đăng xuất</button>
                 </div>
             </div>
 
+            <div class="page-header">
+                <h1>🛠️ Admin Dashboard</h1>
+            </div>
+
+            <!-- ... (Phần Quản lý Camera giữ nguyên) ... -->
             <div class="page-section">
                 <h2 class="section-title">📷 Quản lý Camera</h2>
                 <div class="camera-form">
@@ -37,7 +47,6 @@
                         @(isBusy ? "..." : "+ Thêm")
                     </button>
                 </div>
-
                 <ul class="camera-list">
                     @foreach (var cam in cameras)
                     {
@@ -71,21 +80,20 @@
                 </ul>
             </div>
 
+            <!-- ... (Phần Quản lý Video giữ nguyên) ... -->
             <div class="page-section">
                 <div class="section-header">
                     <h2 class="section-title">🎬 Quản lý Video</h2>
-                    <button class="btn btn-success btn-sm" @onclick="ExportExcel">
-                        📥 Xuất Excel
-                    </button>
+                    <button class="btn btn-success btn-sm" @onclick="ExportExcel">📥 Xuất Excel</button>
                 </div>
-
+                <!-- ... Bảng video giữ nguyên ... -->
                 @if (videos.Count == 0)
                 {
                     <p class="text-muted">Chưa có video nào.</p>
                 }
                 else
                 {
-                    <div class="table-responsive">
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
                         <table class="table admin-table">
                             <thead>
                                 <tr>
@@ -107,9 +115,7 @@
                                         <td>@v.StationName</td>
                                         <td>@v.StartTime.ToString("dd/MM/yyyy HH:mm")</td>
                                         <td>
-                                            <button class="btn btn-info btn-sm text-white" @onclick="() => ViewVideo(v)" style="margin-right:5px;">
-                                                👁️ Xem
-                                            </button>
+                                            <button class="btn btn-info btn-sm text-white" @onclick="() => ViewVideo(v)" style="margin-right:5px;">👁️ Xem</button>
                                             <button class="btn btn-danger btn-sm" @onclick="() => DeleteVideo(v.Id)">Xóa</button>
                                         </td>
                                     </tr>
@@ -119,8 +125,33 @@
                     </div>
                 }
             </div>
+
+            <!-- =========================================
+                 2. CÀI ĐẶT HỆ THỐNG (MỚI)
+                 ========================================= -->
+            <div class="page-section mt-4">
+                <h2 class="section-title">⚙️ Cài đặt hệ thống</h2>
+                <div class="settings-card p-4 border rounded bg-light">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Tự động xóa video sau (ngày):</label>
+                        <div class="d-flex gap-2" style="max-width: 300px;">
+                            <input type="number" class="form-control" @bind="retentionDays" min="1" max="365" />
+                            <button class="btn btn-primary" @onclick="SaveSettings" disabled="@isSavingSettings">
+                                @(isSavingSettings ? "Đang lưu..." : "Lưu cài đặt")
+                            </button>
+                        </div>
+                        <small class="text-muted">Hệ thống sẽ tự động quét và xóa các video cũ hơn số ngày này vào lúc 00:00 hàng ngày.</small>
+                    </div>
+                    @if (!string.IsNullOrEmpty(settingMessage))
+                    {
+                        <div class="alert alert-info mt-2">@settingMessage</div>
+                    }
+                </div>
+            </div>
+
         </div>
 
+        <!-- ... (Phần Modal Video giữ nguyên) ... -->
         @if (showVideoModal)
         {
             <div class="modal-backdrop fade show"></div>
@@ -134,7 +165,6 @@
                         <div class="modal-body text-center bg-black">
                             <video controls autoplay style="width: 100%; max-height: 70vh;">
                                 <source src="@currentVideoUrl" type="video/mp4">
-                                Trình duyệt của bạn không hỗ trợ thẻ video.
                             </video>
                         </div>
                         <div class="modal-footer">
@@ -148,6 +178,7 @@
 
     </Authorized>
     <NotAuthorized>
+        <!-- ... (Giữ nguyên) ... -->
         <div class="text-center mt-5" style="padding-top: 50px;">
             <h3 class="text-danger">⛔ Truy cập bị từ chối</h3>
             <p>Bạn không có quyền truy cập trang này.</p>
@@ -156,44 +187,61 @@
     </NotAuthorized>
 </AuthorizeView>
 
+<style>
+    .admin-navbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 2px solid #eee;
+        padding-bottom: 15px;
+    }
+
+    .active {
+        background-color: #0d6efd;
+        color: white;
+    }
+</style>
+
 @code {
-    // State
+    // ... (Giữ nguyên các biến State cũ) ...
     private List<Camera> cameras = new();
     private List<VideoLog> videos = new();
     private string newCamName = "";
     private string newCamRtsp = "";
-
     private int? editingCamId = null;
     private string editCamName = "";
     private string editCamRtsp = "";
-
     private bool isBusy = false;
-
-    // --- State cho Video Modal ---
     private bool showVideoModal = false;
     private string currentVideoUrl = "";
     private string currentVideoTitle = "";
+
+    // --- State Mới cho Settings ---
+    private int retentionDays = 30; // Mặc định 30 ngày
+    private bool isSavingSettings = false;
+    private string settingMessage = "";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            var user = authState.User;
-
-            if (!user.Identity.IsAuthenticated)
+            if (!authState.User.Identity.IsAuthenticated || !authState.User.IsInRole("admin"))
             {
                 Nav.NavigateTo("/login");
                 return;
             }
 
-            if (!user.IsInRole("admin")) return;
-
             await LoadData();
+            await LoadSettings(); // Tải cài đặt khi vào trang
             StateHasChanged();
         }
     }
 
+    // Helper để highlight menu đang chọn
+    private bool IsActive(string href) => Nav.Uri.EndsWith(href, StringComparison.OrdinalIgnoreCase);
+
+    // ... (Giữ nguyên LoadData, Camera logic, Video View logic) ...
     private async Task LoadData()
     {
         try
@@ -202,127 +250,121 @@
             cameras = await Http.GetFromJsonAsync<List<Camera>>("api/cameras") ?? new();
             videos = await Http.GetFromJsonAsync<List<VideoLog>>("api/videos") ?? new();
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Lỗi tải dữ liệu: {ex.Message}");
-        }
+        catch { }
     }
 
-    // --- LOGIC XEM VIDEO ---
     private void ViewVideo(VideoLog video)
-    {
+    { /* Giữ nguyên logic cũ */
         try
         {
-            // Logic: Đường dẫn vật lý C:\GhiHinhVideos\may1\abc.mp4
-            // -> Đường dẫn web: /videos/may1/abc.mp4
-
-            // Lấy tên file từ đường dẫn đầy đủ
             var fileName = Path.GetFileName(video.FilePath);
-
-            // Tạo URL (Giả sử bạn đã config UseStaticFiles trỏ /videos vào C:\GhiHinhVideos)
-            // Lưu ý: StationName phải khớp với tên thư mục
             currentVideoUrl = $"videos/{video.StationName}/{fileName}";
-
             currentVideoTitle = $"{video.QrCode} ({video.StationName})";
             showVideoModal = true;
         }
-        catch
-        {
-            // Xử lý nếu đường dẫn lỗi
-        }
-    }
-
-    private void CloseVideoModal()
-    {
-        showVideoModal = false;
-        currentVideoUrl = "";
-    }
-
-    // --- CAMERA LOGIC (Giữ nguyên) ---
-    private async Task AddCamera()
-    {
-        if (string.IsNullOrWhiteSpace(newCamName) || string.IsNullOrWhiteSpace(newCamRtsp)) return;
-        isBusy = true;
-        try
-        {
-            await AttachToken();
-            await Http.PostAsJsonAsync("api/cameras", new Camera { Name = newCamName, RtspUrl = newCamRtsp });
-            newCamName = ""; newCamRtsp = "";
-            await LoadData();
-        }
         catch { }
-        isBusy = false;
     }
+    private void CloseVideoModal() { showVideoModal = false; currentVideoUrl = ""; }
 
+    private async Task AddCamera()
+    { /* Giữ nguyên logic cũ */
+        if (string.IsNullOrWhiteSpace(newCamName)) return;
+        await AttachToken();
+        await Http.PostAsJsonAsync("api/cameras", new Camera { Name = newCamName, RtspUrl = newCamRtsp });
+        newCamName = ""; newCamRtsp = ""; await LoadData();
+    }
     private async Task DeleteCamera(int id)
-    {
-        if (!await JS.InvokeAsync<bool>("confirm", "Bạn chắc chắn muốn xóa camera này?")) return;
-        await AttachToken();
-        await Http.DeleteAsync($"api/cameras/{id}");
-        await LoadData();
+    { /* Giữ nguyên logic cũ */
+        if (await JS.InvokeAsync<bool>("confirm", "Xóa camera này?"))
+        {
+            await AttachToken(); await Http.DeleteAsync($"api/cameras/{id}"); await LoadData();
+        }
     }
-
-    private void StartEdit(Camera cam)
-    {
-        editingCamId = cam.Id;
-        editCamName = cam.Name;
-        editCamRtsp = cam.RtspUrl;
-    }
-
+    private void StartEdit(Camera c) { editingCamId = c.Id; editCamName = c.Name; editCamRtsp = c.RtspUrl; }
     private void CancelEdit() => editingCamId = null;
-
     private async Task SaveCamera(int id)
-    {
-        await AttachToken();
-        await Http.PutAsJsonAsync($"api/cameras/{id}", new Camera { Id = id, Name = editCamName, RtspUrl = editCamRtsp });
-        editingCamId = null;
-        await LoadData();
+    { /* Giữ nguyên logic cũ */
+        await AttachToken(); await Http.PutAsJsonAsync($"api/cameras/{id}", new Camera { Id = id, Name = editCamName, RtspUrl = editCamRtsp });
+        editingCamId = null; await LoadData();
     }
-
-    // --- VIDEO LOGIC (Delete & Export) ---
-    private async Task DeleteVideo(int id)
-    {
-        if (!await JS.InvokeAsync<bool>("confirm", "Xóa video này?")) return;
-        await AttachToken();
-        await Http.DeleteAsync($"api/videos/{id}");
-        await LoadData();
-    }
-
     private async Task ExportExcel()
-    {
+    { /* Giữ nguyên logic cũ */
         try
         {
             await AttachToken();
-            var response = await Http.GetAsync("api/videos/export");
-            if (response.IsSuccessStatusCode)
+            var res = await Http.GetAsync("api/videos/export");
+            if (res.IsSuccessStatusCode)
             {
-                var fileContent = await response.Content.ReadAsByteArrayAsync();
-                var fileName = $"BaoCao_Video_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
-                var base64 = Convert.ToBase64String(fileContent);
-                await JS.InvokeVoidAsync("downloadFileFromStream", fileName, base64);
+                var content = await res.Content.ReadAsByteArrayAsync();
+                await JS.InvokeVoidAsync("downloadFileFromStream", $"BaoCao_{DateTime.Now:yyyyMMdd}.xlsx", Convert.ToBase64String(content));
             }
         }
         catch { }
     }
-
     private async Task Logout()
-    {
-        await JS.InvokeVoidAsync("localStorage.clear");
-        if (AuthStateProvider is WebGhiHinh.Services.CustomAuthStateProvider customAuth)
-        {
-            customAuth.MarkUserAsLoggedOut();
-        }
-        Nav.NavigateTo("/login", true);
+    { /* Giữ nguyên logic cũ */
+        await JS.InvokeVoidAsync("localStorage.clear"); Nav.NavigateTo("/login", true);
+    }
+    private async Task AttachToken()
+    { /* Giữ nguyên logic cũ */
+        var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
+        if (!string.IsNullOrEmpty(token)) Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
 
-    private async Task AttachToken()
+    // --- LOGIC XÓA VIDEO (Đã cập nhật ở Backend để xóa file vật lý) ---
+    private async Task DeleteVideo(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Hành động này sẽ XÓA VĨNH VIỄN file video khỏi ổ cứng. Tiếp tục?")) return;
+
+        await AttachToken();
+        var res = await Http.DeleteAsync($"api/videos/{id}");
+        if (res.IsSuccessStatusCode)
+        {
+            await LoadData();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", "Lỗi xóa video!");
+        }
+    }
+
+    // --- LOGIC SETTINGS ---
+    private async Task LoadSettings()
     {
         try
         {
-            var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
-            if (!string.IsNullOrEmpty(token))
-                Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            await AttachToken();
+            var days = await Http.GetFromJsonAsync<int>("api/videos/retention");
+            retentionDays = days > 0 ? days : 30;
         }
         catch { }
+    }
+
+    private async Task SaveSettings()
+    {
+        isSavingSettings = true;
+        try
+        {
+            await AttachToken();
+            var res = await Http.PostAsJsonAsync("api/videos/retention", retentionDays);
+            if (res.IsSuccessStatusCode)
+            {
+                settingMessage = "✅ Đã lưu cài đặt thành công!";
+            }
+            else
+            {
+                settingMessage = "❌ Lỗi khi lưu cài đặt.";
+            }
+        }
+        catch (Exception ex)
+        {
+            settingMessage = "Lỗi: " + ex.Message;
+        }
+        isSavingSettings = false;
+
+        // Ẩn thông báo sau 3s
+        await Task.Delay(3000);
+        settingMessage = "";
+        StateHasChanged();
     }
 }

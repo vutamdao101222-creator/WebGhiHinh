@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using WebGhiHinh.Data;
 using WebGhiHinh.Models;
 using WebGhiHinh.Services;
+using System.Security.Claims; // Cần thiết để đọc Token
 
 namespace WebGhiHinh.Controllers
 {
@@ -21,12 +22,10 @@ namespace WebGhiHinh.Controllers
 
         // ==========================================
         // 1. LẤY DANH SÁCH TRẠM
-        // GET: api/stations
         // ==========================================
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Station>>> GetStations()
         {
-            // Include để lấy luôn thông tin Camera và Người đang ngồi
             return await _context.Stations
                 .Include(s => s.Camera)
                 .Include(s => s.CurrentUser)
@@ -34,13 +33,11 @@ namespace WebGhiHinh.Controllers
         }
 
         // ==========================================
-        // 2. LẤY CAMERA CHƯA ĐƯỢC GÁN (Để hiện trong dropdown lúc tạo trạm)
-        // GET: api/stations/unassigned-cameras
+        // 2. LẤY CAMERA CHƯA ĐƯỢC GÁN
         // ==========================================
         [HttpGet("unassigned-cameras")]
         public async Task<ActionResult<IEnumerable<Camera>>> GetUnassignedCameras()
         {
-            // Logic: Lấy tất cả Camera MÀ ID của nó KHÔNG nằm trong danh sách CameraId của bảng Station
             var assignedCameraIds = await _context.Stations
                 .Where(s => s.CameraId != null)
                 .Select(s => s.CameraId)
@@ -55,12 +52,10 @@ namespace WebGhiHinh.Controllers
 
         // ==========================================
         // 3. TẠO TRẠM MỚI
-        // POST: api/stations
         // ==========================================
         [HttpPost]
         public async Task<ActionResult<Station>> CreateStation(CreateStationDto dto)
         {
-            // Kiểm tra xem Camera này đã được gán cho trạm nào chưa
             if (dto.CameraId.HasValue)
             {
                 bool isAssigned = await _context.Stations.AnyAsync(s => s.CameraId == dto.CameraId);
@@ -84,7 +79,6 @@ namespace WebGhiHinh.Controllers
 
         // ==========================================
         // 4. CẬP NHẬT TRẠM
-        // PUT: api/stations/5
         // ==========================================
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateStation(int id, CreateStationDto dto)
@@ -92,7 +86,6 @@ namespace WebGhiHinh.Controllers
             var station = await _context.Stations.FindAsync(id);
             if (station == null) return NotFound();
 
-            // Nếu thay đổi camera, kiểm tra camera mới có bị trùng không
             if (dto.CameraId.HasValue && dto.CameraId != station.CameraId)
             {
                 bool isAssigned = await _context.Stations.AnyAsync(s => s.CameraId == dto.CameraId);
@@ -111,7 +104,6 @@ namespace WebGhiHinh.Controllers
 
         // ==========================================
         // 5. XÓA TRẠM
-        // DELETE: api/stations/5
         // ==========================================
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteStation(int id)
@@ -125,8 +117,7 @@ namespace WebGhiHinh.Controllers
         }
 
         // ==========================================
-        // 6. VÀO TRẠM (CHIẾM TRẠM)
-        // POST: api/stations/occupy
+        // 6. VÀO TRẠM (ĐÃ SỬA LỖI USER)
         // ==========================================
         [HttpPost("occupy")]
         public async Task<IActionResult> OccupyStation([FromBody] StationActionDto dto)
@@ -134,25 +125,44 @@ namespace WebGhiHinh.Controllers
             var station = await _context.Stations.FindAsync(dto.StationId);
             if (station == null) return NotFound(new { message = "Không tìm thấy trạm" });
 
+            // Kiểm tra xem trạm có người ngồi chưa
             if (station.CurrentUserId != null)
             {
+                // Kiểm tra xem có phải chính người dùng hiện tại đang ngồi không (đề phòng F5)
+                // Ưu tiên lấy ID từ Token
+                var currentUserIdStr = User.FindFirst("Id")?.Value
+                                       ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+                if (currentUserIdStr != null && station.CurrentUserId.ToString() == currentUserIdStr)
+                {
+                    return Ok(new { message = "Bạn đang ngồi trạm này rồi." });
+                }
+
                 return BadRequest(new { message = "Trạm này đang có người khác sử dụng!" });
             }
 
-            // ⚠️ CHÚ Ý: Vì chưa làm Auth Token, ta sẽ lấy User đầu tiên trong DB để test
-            // Sau này bạn sẽ dùng: int userId = int.Parse(User.FindFirst("Id").Value);
-            var firstUser = await _context.Users.FirstOrDefaultAsync();
-            if (firstUser == null) return BadRequest(new { message = "Chưa có User nào trong hệ thống. Hãy tạo User trước." });
+            // --- QUAN TRỌNG: Lấy User ID thực từ Token ---
+            var userIdClaim = User.FindFirst("Id")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-            station.CurrentUserId = firstUser.Id;
+            if (string.IsNullOrEmpty(userIdClaim))
+            {
+                return Unauthorized(new { message = "Không tìm thấy thông tin xác thực. Vui lòng đăng nhập lại." });
+            }
+
+            if (!int.TryParse(userIdClaim, out int userId))
+            {
+                return BadRequest(new { message = "Lỗi định dạng User ID trong Token." });
+            }
+
+            // Gán người dùng thực vào trạm
+            station.CurrentUserId = userId;
             await _context.SaveChangesAsync();
 
             return Ok(new { message = "Đã vào trạm thành công" });
         }
 
         // ==========================================
-        // 7. RỜI TRẠM (QUAN TRỌNG: TỰ ĐỘNG DỪNG VIDEO)
-        // POST: api/stations/release
+        // 7. RỜI TRẠM
         // ==========================================
         [HttpPost("release")]
         public async Task<IActionResult> ReleaseStation([FromBody] StationActionDto dto)
@@ -161,8 +171,7 @@ namespace WebGhiHinh.Controllers
         }
 
         // ==========================================
-        // 8. GIẢI PHÓNG TRẠM (Admin Force Release)
-        // POST: api/stations/force-release
+        // 8. GIẢI PHÓNG TRẠM (Admin)
         // ==========================================
         [HttpPost("force-release")]
         public async Task<IActionResult> ForceRelease([FromBody] StationActionDto dto)
@@ -170,22 +179,29 @@ namespace WebGhiHinh.Controllers
             return await PerformRelease(dto.StationId);
         }
 
-        // --- HÀM DÙNG CHUNG CHO RELEASE & FORCE RELEASE ---
+        // --- HÀM DÙNG CHUNG (CÓ TRY-CATCH) ---
         private async Task<IActionResult> PerformRelease(int stationId)
         {
             var station = await _context.Stations.FindAsync(stationId);
             if (station == null) return NotFound(new { message = "Không tìm thấy trạm" });
 
-            // 1. Kiểm tra xem trạm này có đang ghi hình dở dang không?
+            // 1. Kiểm tra và dừng ghi hình nếu đang quay
             var activeLog = await _context.VideoLogs
                 .FirstOrDefaultAsync(v => v.StationName == station.Name && v.EndTime == null);
 
             if (activeLog != null)
             {
-                // 👉 Tự động tắt FFmpeg
-                _ffmpegService.StopRecording(activeLog.QrCode);
+                try
+                {
+                    // Bao bọc try-catch để tránh lỗi nếu process đã chết hoặc key không tồn tại
+                    _ffmpegService.StopRecording(activeLog.QrCode);
+                }
+                catch (Exception ex)
+                {
+                    // Log lỗi ra console server để debug, không làm gián đoạn việc rời trạm
+                    Console.WriteLine($"[Warning] Lỗi dừng FFmpeg khi Release: {ex.Message}");
+                }
 
-                // Cập nhật DB
                 activeLog.EndTime = DateTime.Now;
                 _context.VideoLogs.Update(activeLog);
             }
@@ -194,11 +210,11 @@ namespace WebGhiHinh.Controllers
             station.CurrentUserId = null;
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "Đã rời trạm và dừng các tác vụ ghi hình." });
+            return Ok(new { message = "Đã rời trạm." });
         }
     }
 
-    // --- DTO ---
+    // DTOs
     public class CreateStationDto
     {
         public string Name { get; set; }

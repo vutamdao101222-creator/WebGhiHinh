@@ -31,7 +31,16 @@ namespace WebGhiHinh.Controllers
                 return BadRequest(new { message = "Thiếu thông tin QR hoặc RTSP URL" });
             }
 
-            string currentUserName = User.FindFirst(ClaimTypes.Name)?.Value ?? "System";
+            // 👇 SỬA LỖI TẠI ĐÂY:
+            // Do mapInboundClaims = false, ta phải tìm chính xác key "name" thay vì ClaimTypes.Name
+            string currentUserName = User.FindFirst("name")?.Value
+                                     ?? User.FindFirst(ClaimTypes.Name)?.Value
+                                     ?? User.Identity?.Name
+                                     ?? "UnknownUser";
+
+            // Xóa khoảng trắng nếu có để tránh lỗi tên file
+            currentUserName = currentUserName.Replace(" ", "");
+
             string message = "";
 
             // Tìm video đang quay tại trạm
@@ -43,7 +52,11 @@ namespace WebGhiHinh.Controllers
             // -----------------------------------------------------
             if (activeLog != null && activeLog.QrCode == request.QrCode)
             {
-                _ffmpegService.StopRecording(request.StationName);
+                try
+                {
+                    _ffmpegService.StopRecording(request.StationName);
+                }
+                catch (Exception) { /* Bỏ qua lỗi nếu process đã chết */ }
 
                 activeLog.EndTime = DateTime.Now;
                 _context.VideoLogs.Update(activeLog);
@@ -62,12 +75,15 @@ namespace WebGhiHinh.Controllers
             // -----------------------------------------------------
             if (activeLog != null)
             {
-                _ffmpegService.StopRecording(activeLog.QrCode);
+                try
+                {
+                    _ffmpegService.StopRecording(activeLog.QrCode);
+                }
+                catch (Exception) { /* Bỏ qua */ }
 
                 activeLog.EndTime = DateTime.Now;
                 _context.VideoLogs.Update(activeLog);
                 await _context.SaveChangesAsync();
-
                 message += $"Đã dừng mã cũ ({activeLog.QrCode}). ";
             }
 
@@ -80,7 +96,7 @@ namespace WebGhiHinh.Controllers
                     request.RtspUrl,
                     request.QrCode,
                     request.StationName,
-                    currentUserName
+                    currentUserName // Truyền tên đúng vào đây
                 );
 
                 var newLog = new VideoLog
@@ -104,7 +120,7 @@ namespace WebGhiHinh.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "Lỗi hệ thống: " + ex.Message });
+                return StatusCode(500, new { message = "Lỗi Ffmpeg Service: " + ex.Message });
             }
         }
 
@@ -117,7 +133,14 @@ namespace WebGhiHinh.Controllers
             var activeLog = await _context.VideoLogs
                 .FirstOrDefaultAsync(v => v.QrCode == request.QrCode && v.EndTime == null);
 
-            _ffmpegService.StopRecording(request.QrCode);
+            try
+            {
+                _ffmpegService.StopRecording(request.QrCode);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Warning StopScan: " + ex.Message);
+            }
 
             if (activeLog != null)
             {
@@ -145,15 +168,18 @@ namespace WebGhiHinh.Controllers
             foreach (var v in activeVideos)
             {
                 if (!string.IsNullOrEmpty(v.StationName))
-                    status[v.StationName] = v.QrCode;
+                {
+                    if (!status.ContainsKey(v.StationName))
+                    {
+                        status[v.StationName] = v.QrCode;
+                    }
+                }
             }
 
             return Ok(status);
         }
     }
 
-
-    // DTOs
     public class ScanRequest
     {
         public string QrCode { get; set; }
