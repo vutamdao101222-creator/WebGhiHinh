@@ -60,10 +60,18 @@
                 }
                 else
                 {
-
                     <span>Đăng nhập</span>
                 }
             </button>
+
+            <!-- 👇 ĐÃ CẬP NHẬT NỘI DUNG -->
+            <div style="margin-top: 1.5rem; text-align: center; font-size: 0.95rem;">
+                <span style="color: #6b7280;">Bạn chưa có tài khoản?</span>
+                <a href="/register" style="color: #3b82f6; text-decoration: none; font-weight: 600; margin-left: 5px; transition: color 0.2s;">
+                    ĐĂNG KÝ NGAY
+                </a>
+            </div>
+
         </EditForm>
     </div>
 </div>
@@ -113,9 +121,11 @@
             // Đợi 1 chút để State được cập nhật chắc chắn
             await Task.Delay(100);
 
-            // 3. CHUYỂN TRANG (QUAN TRỌNG: KHÔNG DÙNG THAM SỐ TRUE)
-            // Nếu dùng true, trang sẽ load lại từ đầu -> Mất trạng thái login -> Bị đẩy về lại trang login
-            if (result.role?.ToLower() == "admin")
+            // 3. CHUYỂN TRANG
+            var role = result.role?.ToLower();
+            
+            // Cho phép cả admin và admin1 về trang quản trị
+            if (role == "admin" || role == "admin1")
                 Nav.NavigateTo("/admin");
             else
                 Nav.NavigateTo("/scan");

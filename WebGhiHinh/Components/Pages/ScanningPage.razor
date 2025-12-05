@@ -4,10 +4,19 @@
 @using WebGhiHinh.Controllers
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.Text.Json
+@using System.Net.Http.Headers
+
+@* 👇 THÊM DÒNG NÀY: Hãy thay đổi 'WebGhiHinh.Services' thành namespace thực tế chứa file CustomAuthStateProvider.cs của bạn (ví dụ: WebGhiHinh.Data, WebGhiHinh.Auth) *@
+@using WebGhiHinh.Services 
+@using WebGhiHinh.Data
+
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
+
+@* 👇 THAY ĐỔI: Dùng IAsyncDisposable để xử lý bất đồng bộ khi hủy component *@
+@implements IAsyncDisposable
 
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 
@@ -18,22 +27,43 @@
         <div class="scan-container">
             <div class="scan-card">
                 
-                <!-- HEADER & LOGOUT -->
+                <!-- HEADER & ACTIONS (Đã sửa layout để không bị chồng nút) -->
                 <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
                     <div>
                         <span class="text-muted small">Xin chào,</span>
                         <strong class="text-primary">@context.User.Identity?.Name</strong>
                     </div>
-                    <button class="btn btn-sm btn-outline-danger d-flex align-items-center gap-1" @onclick="Logout">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
-                        Đăng xuất
-                    </button>
+                    
+                    <div class="d-flex align-items-center gap-2">
+                        <!-- Nút Rời Trạm (Chỉ hiện khi đang chiếm trạm) -->
+                        @if (occupiedStation != null)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1" @onclick="ReleaseStation" title="Rời trạm để chọn máy khác">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                                    <polyline points="16 17 21 12 16 7" />
+                                    <line x1="21" x2="9" y1="12" y2="12" />
+                                </svg>
+                                Rời trạm
+                            </button>
+                        }
+
+                        <!-- Nút Đăng Xuất -->
+                        <button class="btn btn-sm btn-outline-danger d-flex align-items-center gap-1" @onclick="Logout">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                                <polyline points="16 17 21 12 16 7"/>
+                                <line x1="21" x2="9" y1="12" y2="12"/>
+                            </svg>
+                            Đăng xuất
+                        </button>
+                    </div>
                 </div>
 
                 <!-- HIỂN THỊ LỖI CHUNG (NẾU CÓ) -->
                 @if (!string.IsNullOrEmpty(statusMessage))
                 {
-                    <div class="alert @(statusType == "success" ? "alert-success" : (statusType == "error" ? "alert-danger" : "alert-info")) mb-3">
+                    <div class="alert @(statusType == "success" ? "alert-success" : (statusType == "error" ? "alert-danger" : (statusType == "warning" ? "alert-warning" : "alert-info"))) mb-3">
                         @statusMessage
                     </div>
                 }
@@ -48,7 +78,7 @@
                     @if (loading)
                     {
                         <div class="spinner"></div>
-                        <p style="color: #6b7280; margin-top: 10px;">Đang tải danh sách trạm...</p>
+                        <p style="color: #6b7280; margin-top: 10px;">Đang kiểm tra trạng thái trạm...</p>
                     }
                     else if (stations.Count == 0)
                     {
@@ -82,11 +112,7 @@
                        GIAO DIỆN 2: QUÉT MÃ & GHI HÌNH
                        ========================================= */
 
-                    <!-- Nút Rời Trạm -->
-                    <button class="release-button" @onclick="ReleaseStation" title="Rời trạm">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" x2="9" y1="12" y2="12" /></svg>
-                        Rời trạm
-                    </button>
+                    // Đã xóa nút Rời trạm cũ ở đây để tránh bị chồng
 
                     <h2 class="scan-header">Trạm: @occupiedStation.Name</h2>
 
@@ -99,7 +125,8 @@
                                 Live Preview (@occupiedStation.Camera.Name)
                             </div>
                             <div class="live-feed-content">
-                                <iframe src="@($"http://10.10.11.4:8889/{occupiedStation.Camera.Name}/")"
+                                <!-- 👇 Tự động lấy IP Server cho Live Preview -->
+                                <iframe src="@($"{StreamBaseUrl}/{occupiedStation.Camera.Name}/")"
                                         class="live-iframe"
                                         allow="autoplay"
                                         scrolling="no"></iframe>
@@ -191,7 +218,12 @@
         </div>
     </Authorized>
     <NotAuthorized>
-        @{ Nav.NavigateTo("/login", true); }
+        @* 👇 [FIX F5]: Thay vì redirect ngay (gây lỗi khi F5), hiển thị màn hình chờ.
+           Logic trong OnAfterRenderAsync sẽ tự lo việc nạp lại user. *@
+        <div class="d-flex flex-column justify-content-center align-items-center" style="height: 50vh;">
+             <div class="spinner-border text-primary mb-3" role="status"></div>
+             <div class="text-muted">Đang kiểm tra đăng nhập...</div>
+        </div>
     </NotAuthorized>
 </AuthorizeView>
 
@@ -203,6 +235,7 @@
     private string? currentRecordingQR = null;
     private string statusMessage = "";
     private string statusType = "info";
+    private string StreamBaseUrl = "http://localhost:8889"; // Mặc định
 
     private bool loading = true;
     private bool isCameraActive = false;
@@ -211,6 +244,9 @@
     private bool qrFound = false;
     private bool isFlashOn = false;
 
+    // 👇 [FIX] Lưu Token vào biến C# để dùng khi đóng trình duyệt (Lúc đó JS LocalStorage không gọi được nữa)
+    private string? _cachedToken;
+
     // --- Element References ---
     private ElementReference videoElement;
     private ElementReference canvasElement;
@@ -218,13 +254,33 @@
     private DotNetObjectReference<ScanningPage>? objRef;
 
     // --- Lifecycle Methods ---
+    
+    // 👇 Tự động lấy IP cho Stream
+    protected override void OnInitialized()
+    {
+        try 
+        {
+            var uri = new Uri(Nav.BaseUri);
+            StreamBaseUrl = $"http://{uri.Host}:8889";
+        }
+        catch { }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
+            // 👇 1. Nạp lại thông tin đăng nhập từ LocalStorage
+            if (AuthStateProvider is CustomAuthStateProvider customAuth)
+            {
+                await customAuth.LoadUserFromLocalStorage();
+            }
+
+            // 👇 2. Kiểm tra Auth SAU KHI đã cố gắng load
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             if (!authState.User.Identity.IsAuthenticated)
             {
+                // Chỉ redirect nếu sau khi load token mà vẫn không có user
                 Nav.NavigateTo("/login", true);
                 return;
             }
@@ -233,11 +289,30 @@
             {
                 isJsqrLoaded = await JS.InvokeAsync<bool>("eval", "typeof jsQR !== 'undefined'");
                 await LoadStations();
+                
+                // 👇 3. [FIX] TỰ ĐỘNG KHÔI PHỤC TRẠM CŨ (Nếu quên Rời trạm)
+                var currentUsername = authState.User.Identity?.Name;
+                if (!string.IsNullOrEmpty(currentUsername))
+                {
+                    // Tìm xem user này có đang đứng ở trạm nào không
+                    var existingStation = stations.FirstOrDefault(s => s.CurrentUser?.Username == currentUsername);
+                    if (existingStation != null)
+                    {
+                        occupiedStation = existingStation;
+                        await CheckStationStatus(occupiedStation.Name);
+                        
+                        statusMessage = $"Bạn đã được tự động kết nối lại vào trạm '{occupiedStation.Name}' do chưa thoát phiên làm việc trước đó.";
+                        statusType = "warning";
+                        StateHasChanged();
+                    }
+                }
+
                 StateHasChanged();
             }
             catch { }
         }
 
+        // Tự động focus ô nhập liệu
         if (occupiedStation != null && !isSubmitting && !isCameraActive)
         {
             try { await inputRef.FocusAsync(); } catch { }
@@ -257,6 +332,7 @@
     {
         try 
         {
+            // Tự động rời trạm khi đăng xuất để tránh treo trạm
             if(occupiedStation != null) await ReleaseStation();
         } 
         catch {}
@@ -283,12 +359,16 @@
         }
     }
 
-    // --- [QUAN TRỌNG] FIX LỖI OCCUPY KHÔNG BÁO LỖI ---
     private async Task OccupyStation(Station station)
     {
-        if (station.CurrentUserId != null) return;
+        // 👇 [CẬP NHẬT] Kiểm tra nếu trạm đã có người thì báo lỗi thay vì im lặng
+        if (station.CurrentUserId != null)
+        {
+            statusMessage = $"🚫 Máy {station.Name} hiện đang có người sử dụng ({station.CurrentUser?.Username ?? "..."}). Vui lòng chọn máy khác.";
+            statusType = "error";
+            return;
+        }
         
-        // Reset thông báo lỗi cũ
         statusMessage = "";
         
         try
@@ -296,20 +376,16 @@
             await AttachTokenToHttp();
             var res = await Http.PostAsJsonAsync("api/station/occupy", new { StationId = station.Id });
             
-            // Đọc nội dung phản hồi từ server
             var content = await res.Content.ReadAsStringAsync();
 
             if (res.IsSuccessStatusCode)
             {
-                // THÀNH CÔNG: Vào trạm
                 occupiedStation = station;
                 statusMessage = "";
                 await CheckStationStatus(station.Name);
             }
             else 
             {
-                // THẤT BẠI: Hiện lỗi (VD: Token thiếu ID, Trạm bận...)
-                // Cố gắng parse JSON lỗi nếu có, hoặc hiện raw text
                 try 
                 {
                     using var doc = JsonDocument.Parse(content);
@@ -366,11 +442,6 @@
         catch { }
     }
 
-    // ... (Các hàm Camera, SendScanRequest giữ nguyên không đổi) ...
-    // Để tiết kiệm không gian, tôi chỉ viết lại các phần quan trọng đã sửa ở trên.
-    // Các hàm StartCamera, StopCamera, ToggleFlash, ProcessScan, HandleManualSubmit, SendScanRequest, AttachTokenToHttp
-    // bạn hãy giữ nguyên như code cũ.
-    
     // START CAMERA
     private async Task StartCamera() {
         if (!isJsqrLoaded) return;
@@ -420,9 +491,44 @@
     }
 
     private async Task AttachTokenToHttp() {
+        // [FIX] Cập nhật Token vào biến cache mỗi khi gọi hàm này
         var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
-        if (!string.IsNullOrEmpty(token)) Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        if (!string.IsNullOrEmpty(token)) 
+        {
+            _cachedToken = token; // Lưu lại để dùng cho DisposeAsync
+            Http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
     }
 
-    public void Dispose() { StopCamera(); objRef?.Dispose(); }
+    // 👇 THAY ĐỔI LỚN: Xử lý dọn dẹp khi Component bị hủy (Dispose)
+    // Khi người dùng chuyển trang khác (navigating away), DisposeAsync sẽ được gọi.
+    public async ValueTask DisposeAsync() 
+    {
+        // 1. Tắt Camera và hủy object reference
+        // [QUAN TRỌNG] Phải dùng try-catch vì nếu Browser đã tắt, lệnh JS sẽ gây lỗi.
+        try {
+            if (isCameraActive) await JS.InvokeVoidAsync("stopCamera");
+            objRef?.Dispose();
+        } catch { /* Bỏ qua lỗi JS nếu browser đã đóng */ }
+        
+        // 2. Tự động gọi API Release nếu đang giữ trạm
+        if (occupiedStation != null)
+        {
+            try 
+            {
+                // [QUAN TRỌNG] Sử dụng _cachedToken đã lưu, KHÔNG GỌI AttachTokenToHttp() (vì nó gọi JS)
+                if (!string.IsNullOrEmpty(_cachedToken))
+                {
+                    Http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _cachedToken);
+                    
+                    // Gọi API release "fire-and-forget"
+                    await Http.PostAsJsonAsync("api/station/release", new { StationId = occupiedStation.Id });
+                }
+            }
+            catch 
+            { 
+                // Có thể xảy ra lỗi nếu circuit đã ngắt hoàn toàn
+            }
+        }
+    }
 }

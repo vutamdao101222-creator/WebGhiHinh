@@ -59,7 +59,7 @@ builder.Services.AddSingleton<FfmpegService>();
 // HttpClient
 builder.Services.AddScoped(sp => new HttpClient
 {
-    BaseAddress = new Uri("http://10.10.11.4")
+    BaseAddress = new Uri("http://192.168.1.48")
 });
 
 //builder.Services.AddHttpContextAccessor();
@@ -132,11 +132,12 @@ var app = builder.Build();
 // 2. MIDDLEWARE
 // ==========================================
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// 👇 ĐÃ SỬA: Cho phép Swagger chạy ở mọi môi trường (kể cả khi Publish)
+// if (app.Environment.IsDevelopment()) // <--- Bỏ check này
+// {
+app.UseSwagger();
+app.UseSwaggerUI();
+// }
 
 app.UseHttpsRedirection();
 

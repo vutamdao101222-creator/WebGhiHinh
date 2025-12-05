@@ -13,7 +13,6 @@
 
 @if (isLoading)
 {
-    <!-- Màn hình chờ khi đang kiểm tra quyền -->
     <div class="page-container" style="display:flex; justify-content:center; align-items:center; height:80vh;">
         <div class="spinner"></div>
         <span style="margin-left: 10px; color: #666;">Đang kiểm tra quyền truy cập...</span>
@@ -32,13 +31,10 @@ else if (isAuthorized)
         </div>
 
         <div class="page-section">
-            <!-- 👇 HIỂN THỊ LỖI NẾU CÓ (MỚI) -->
             @if (!string.IsNullOrEmpty(loadError))
             {
                 <div class="alert alert-danger" style="margin: 20px;">
                     <strong>⚠️ Lỗi tải dữ liệu:</strong> @loadError
-                    <br />
-                    <small>Vui lòng kiểm tra lại API hoặc nhấn F5 thử lại.</small>
                 </div>
             }
 
@@ -75,7 +71,11 @@ else if (isAuthorized)
                                     <td>
                                         @if (u.Role == "admin")
                                         {
-                                            <span class="badge bg-danger">Admin</span>
+                                            <span class="badge bg-danger">Admin (Toàn quyền)</span>
+                                        }
+                                        else if (u.Role == "admin1")
+                                        {
+                                            <span class="badge bg-warning text-dark">Admin 1 (Xem & Live)</span>
                                         }
                                         else
                                         {
@@ -95,7 +95,7 @@ else if (isAuthorized)
         </div>
     </div>
 
-    <!-- MODAL THÊM / SỬA USER -->
+    <!-- MODAL -->
     @if (showModal)
     {
         <div class="modal-backdrop fade show"></div>
@@ -108,39 +108,36 @@ else if (isAuthorized)
                     </div>
                     <div class="modal-body">
                         <div class="mb-3">
-                            <label>Tên đăng nhập (@(isEditing ? "Không thể sửa" : "Bắt buộc"))</label>
+                            <label>Tên đăng nhập</label>
                             <input class="form-control" @bind="currentUser.Username" disabled="@isEditing" />
                         </div>
-
                         <div class="mb-3">
                             <label>Mật khẩu @(isEditing ? "(Để trống nếu không đổi)" : "")</label>
-                            <input type="password" class="form-control" @bind="passwordInput" placeholder="******" />
+                            <input type="password" class="form-control" @bind="passwordInput" />
                         </div>
-
                         <div class="row">
                             <div class="col-6 mb-3">
-                                <label>Họ và tên</label>
+                                <label>Họ tên</label>
                                 <input class="form-control" @bind="currentUser.FullName" />
                             </div>
                             <div class="col-6 mb-3">
-                                <label>Mã nhân viên</label>
+                                <label>Mã NV</label>
                                 <input class="form-control" @bind="currentUser.EmployeeCode" />
                             </div>
                         </div>
-
                         <div class="mb-3">
                             <label>Địa chỉ</label>
                             <input class="form-control" @bind="currentUser.Address" />
                         </div>
-
                         <div class="mb-3">
                             <label>Vai trò</label>
                             <select class="form-select" @bind="currentUser.Role">
                                 <option value="user">User (Nhân viên)</option>
-                                <option value="admin">Admin (Quản trị)</option>
+                                <option value="admin">Admin (Toàn quyền)</option>
+                                <!-- 👇 THÊM OPTION ADMIN 1 -->
+                                <option value="admin1">Admin 1 (Chỉ xem Video/Live)</option>
                             </select>
                         </div>
-
                         @if (!string.IsNullOrEmpty(errorMsg))
                         {
                             <div class="alert alert-danger">@errorMsg</div>
@@ -157,15 +154,13 @@ else if (isAuthorized)
 }
 else
 {
-    <!-- Giao diện khi bị từ chối truy cập (Fallback) -->
     <div class="alert alert-danger text-center mt-5">
         <h3>⛔ Truy cập bị từ chối</h3>
-        <p>Đang chuyển hướng về trang đăng nhập...</p>
+        <p>Chỉ tài khoản Admin toàn quyền mới xem được trang này.</p>
     </div>
 }
 
 @code {
-    // Model binding
     public class UserViewModel
     {
         public int Id { get; set; }
@@ -182,41 +177,33 @@ else
     private UserViewModel currentUser = new();
     private string passwordInput = "";
     private string errorMsg = "";
-
-    // 👇 BIẾN LƯU LỖI ĐỂ HIỂN THỊ RA MÀN HÌNH
     private string loadError = "";
-
-    // Biến kiểm soát trạng thái
     private bool isLoading = true;
     private bool isAuthorized = false;
 
-    // 👇 CHUYỂN LOGIC CHECK VÀO ĐÂY (SAU KHI RENDER & CÓ JS)
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            // 1. Cố gắng nạp lại User từ LocalStorage (Fix lỗi F5 bị mất session)
             if (AuthStateProvider is WebGhiHinh.Services.CustomAuthStateProvider customAuth)
             {
                 await customAuth.LoadUserFromLocalStorage();
             }
 
-            // 2. Lấy trạng thái Auth mới nhất
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
 
-            // 3. Kiểm tra quyền Admin
+            // CHỈ ADMIN GỐC MỚI ĐƯỢC VÀO QUẢN LÝ USER
             if (user.Identity.IsAuthenticated && user.IsInRole("admin"))
             {
                 isAuthorized = true;
                 isLoading = false;
-                await LoadUsers(); // Load dữ liệu
-                StateHasChanged(); // Cập nhật giao diện
+                await LoadUsers();
+                StateHasChanged();
             }
             else
             {
                 isAuthorized = false;
-                // Nếu không phải Admin -> Đá về login
                 Nav.NavigateTo("/login");
             }
         }
@@ -226,132 +213,64 @@ else
     {
         try
         {
-            loadError = ""; // Reset lỗi cũ
+            loadError = "";
             await AttachToken();
             users = await Http.GetFromJsonAsync<List<UserViewModel>>("api/users") ?? new();
         }
         catch (Exception ex)
         {
-            Console.WriteLine("Lỗi load users: " + ex.Message);
-            // 👇 Ghi lại lỗi và gán users = rỗng để tắt spinner
             loadError = ex.Message;
             users = new List<UserViewModel>();
         }
-        finally
-        {
-            StateHasChanged();
-        }
+        finally { StateHasChanged(); }
     }
 
-    private void OpenCreateModal()
-    {
-        isEditing = false;
-        currentUser = new UserViewModel { Role = "user" };
-        passwordInput = "";
-        errorMsg = "";
-        showModal = true;
-    }
-
-    private void OpenEditModal(UserViewModel user)
-    {
-        isEditing = true;
-        currentUser = new UserViewModel
-        {
-            Id = user.Id,
-            Username = user.Username,
-            FullName = user.FullName,
-            EmployeeCode = user.EmployeeCode,
-            Address = user.Address,
-            Role = user.Role
-        };
-        passwordInput = "";
-        errorMsg = "";
-        showModal = true;
-    }
-
+    private void OpenCreateModal() { isEditing = false; currentUser = new UserViewModel { Role = "user" }; passwordInput = ""; errorMsg = ""; showModal = true; }
+    private void OpenEditModal(UserViewModel user) { isEditing = true; currentUser = new UserViewModel { Id = user.Id, Username = user.Username, FullName = user.FullName, EmployeeCode = user.EmployeeCode, Address = user.Address, Role = user.Role }; passwordInput = ""; errorMsg = ""; showModal = true; }
     private void CloseModal() => showModal = false;
 
     private async Task SaveUser()
     {
         errorMsg = "";
-        if (string.IsNullOrWhiteSpace(currentUser.Username))
-        {
-            errorMsg = "Vui lòng nhập tên đăng nhập."; return;
-        }
-
-        if (!isEditing && string.IsNullOrWhiteSpace(passwordInput))
-        {
-            errorMsg = "Vui lòng nhập mật khẩu cho tài khoản mới."; return;
-        }
+        if (string.IsNullOrWhiteSpace(currentUser.Username)) { errorMsg = "Thiếu username"; return; }
+        if (!isEditing && string.IsNullOrWhiteSpace(passwordInput)) { errorMsg = "Thiếu password"; return; }
 
         try
         {
             await AttachToken();
-
             if (isEditing)
             {
-                var updateDto = new
-                {
-                    FullName = currentUser.FullName,
-                    EmployeeCode = currentUser.EmployeeCode,
-                    Address = currentUser.Address,
-                    Role = currentUser.Role,
-                    Password = string.IsNullOrWhiteSpace(passwordInput) ? null : passwordInput
-                };
+                var updateDto = new { FullName = currentUser.FullName, EmployeeCode = currentUser.EmployeeCode, Address = currentUser.Address, Role = currentUser.Role, Password = string.IsNullOrWhiteSpace(passwordInput) ? null : passwordInput };
                 var res = await Http.PutAsJsonAsync($"api/users/{currentUser.Id}", updateDto);
                 if (!res.IsSuccessStatusCode) throw new Exception(await res.Content.ReadAsStringAsync());
             }
             else
             {
-                var createDto = new
-                {
-                    Username = currentUser.Username,
-                    Password = passwordInput,
-                    FullName = currentUser.FullName,
-                    EmployeeCode = currentUser.EmployeeCode,
-                    Address = currentUser.Address,
-                    Role = currentUser.Role
-                };
+                var createDto = new { Username = currentUser.Username, Password = passwordInput, FullName = currentUser.FullName, EmployeeCode = currentUser.EmployeeCode, Address = currentUser.Address, Role = currentUser.Role };
                 var res = await Http.PostAsJsonAsync("api/users", createDto);
                 if (!res.IsSuccessStatusCode) throw new Exception(await res.Content.ReadAsStringAsync());
             }
-
-            showModal = false;
-            await LoadUsers();
+            showModal = false; await LoadUsers();
         }
-        catch (Exception ex)
-        {
-            errorMsg = "Lỗi: " + ex.Message;
-        }
+        catch (Exception ex) { errorMsg = "Lỗi: " + ex.Message; }
     }
 
     private async Task DeleteUser(int id)
     {
-        if (!await JS.InvokeAsync<bool>("confirm", "Bạn có chắc muốn xóa tài khoản này?")) return;
-
-        try
-        {
-            await AttachToken();
-            await Http.DeleteAsync($"api/users/{id}");
-            await LoadUsers();
-        }
-        catch { }
+        if (!await JS.InvokeAsync<bool>("confirm", "Xóa user này?")) return;
+        try { await AttachToken(); await Http.DeleteAsync($"api/users/{id}"); await LoadUsers(); } catch { }
     }
 
     private async Task AttachToken()
     {
         var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
-        if (!string.IsNullOrEmpty(token))
-            Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        if (!string.IsNullOrEmpty(token)) Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
 
     private async Task Logout()
     {
         await JS.InvokeVoidAsync("localStorage.clear");
-        if (AuthStateProvider is WebGhiHinh.Services.CustomAuthStateProvider customAuth)
-        {
-            await customAuth.MarkUserAsLoggedOut();
-        }
+        if (AuthStateProvider is WebGhiHinh.Services.CustomAuthStateProvider customAuth) await customAuth.MarkUserAsLoggedOut();
         Nav.NavigateTo("/login", true);
     }
 }

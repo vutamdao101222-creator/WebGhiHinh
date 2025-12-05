@@ -5,6 +5,11 @@
 @using WebGhiHinh.Controllers
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.IO
+
+@* 👇 NAMESPACE CHỨA CustomAuthStateProvider *@
+@using WebGhiHinh.Services
+@using WebGhiHinh.Data
+
 @inject HttpClient Http
 @inject NavigationManager Nav
 @inject IJSRuntime JS
@@ -14,7 +19,8 @@
 
 <PageTitle>Admin Dashboard</PageTitle>
 
-<AuthorizeView Roles="admin">
+<!-- 👇 CHO PHÉP CẢ 'admin' VÀ 'admin1' -->
+<AuthorizeView Roles="admin, admin1">
     <Authorized>
         <div class="page-container fade-in">
             <!-- =========================================
@@ -23,12 +29,27 @@
             <div class="admin-navbar mb-4">
                 <div class="d-flex gap-2">
                     <button class="btn btn-outline-primary @(IsActive("/admin") ? "active" : "")" @onclick='() => Nav.NavigateTo("/admin")'>🏠 Dashboard</button>
+                    <!-- Nút Scan -->
+                    <button class="btn btn-outline-primary @(IsActive("/scan") ? "active" : "")" @onclick='() => Nav.NavigateTo("/scan")'>📷 Quét QR</button>
                     <button class="btn btn-outline-primary @(IsActive("/live") ? "active" : "")" @onclick='() => Nav.NavigateTo("/live")'>📺 Xem Live</button>
-                    <button class="btn btn-outline-primary @(IsActive("/admin/stations") ? "active" : "")" @onclick='() => Nav.NavigateTo("/admin/stations")'>🚉 Quản lý Trạm</button>
-                    <button class="btn btn-outline-primary @(IsActive("/admin/users") ? "active" : "")" @onclick='() => Nav.NavigateTo("/admin/users")'>👥 Quản lý Users</button>
+                    
+                    <!-- 👇 CHỈ ADMIN TOÀN QUYỀN MỚI THẤY NÚT QUẢN LÝ -->
+                    @if (isFullAdmin)
+                    {
+                        <button class="btn btn-outline-primary @(IsActive("/admin/stations") ? "active" : "")" @onclick='() => Nav.NavigateTo("/admin/stations")'>🚉 Quản lý Trạm</button>
+                        <button class="btn btn-outline-primary @(IsActive("/admin/users") ? "active" : "")" @onclick='() => Nav.NavigateTo("/admin/users")'>👥 Quản lý Users</button>
+                    }
                 </div>
                 <div class="header-actions">
-                    <span class="admin-badge">Administrator</span>
+                    <!-- Hiển thị Badge khác nhau tùy quyền -->
+                    @if (isFullAdmin)
+                    {
+                        <span class="admin-badge" style="background-color: #dc3545;">Administrator</span>
+                    }
+                    else
+                    {
+                        <span class="admin-badge" style="background-color: #ffc107; color: #000;">Admin 1 (View Only)</span>
+                    }
                     <button class="btn btn-secondary btn-sm" @onclick="Logout">Đăng xuất</button>
                 </div>
             </div>
@@ -37,16 +58,22 @@
                 <h1>🛠️ Admin Dashboard</h1>
             </div>
 
-            <!-- ... (Phần Quản lý Camera giữ nguyên) ... -->
+            <!-- ... QUẢN LÝ CAMERA ... -->
             <div class="page-section">
-                <h2 class="section-title">📷 Quản lý Camera</h2>
-                <div class="camera-form">
-                    <input @bind="newCamName" class="admin-input" placeholder="Tên Camera (VD: Cam1)" />
-                    <input @bind="newCamRtsp" class="admin-input" placeholder="RTSP URL (rtsp://...)" />
-                    <button class="btn btn-primary" @onclick="AddCamera" disabled="@isBusy">
-                        @(isBusy ? "..." : "+ Thêm")
-                    </button>
-                </div>
+                <h2 class="section-title">📷 Danh sách Camera</h2>
+                
+                <!-- 👇 CHỈ ADMIN TOÀN QUYỀN MỚI ĐƯỢC THÊM CAMERA -->
+                @if (isFullAdmin)
+                {
+                    <div class="camera-form">
+                        <input @bind="newCamName" class="admin-input" placeholder="Tên Camera (VD: Cam1)" />
+                        <input @bind="newCamRtsp" class="admin-input" placeholder="RTSP URL (rtsp://...)" />
+                        <button class="btn btn-primary" @onclick="AddCamera" disabled="@isBusy">
+                            @(isBusy ? "..." : "+ Thêm")
+                        </button>
+                    </div>
+                }
+
                 <ul class="camera-list">
                     @foreach (var cam in cameras)
                     {
@@ -54,8 +81,8 @@
                             @if (editingCamId == cam.Id)
                             {
                                 <div class="edit-row">
-                                    <input @bind="editCamName" class="admin-input" placeholder="Tên" />
-                                    <input @bind="editCamRtsp" class="admin-input" placeholder="RTSP URL" />
+                                    <input @bind="editCamName" @bind:event="oninput" class="admin-input" placeholder="Tên Camera" />
+                                    <input @bind="editCamRtsp" @bind:event="oninput" class="admin-input" placeholder="RTSP URL" />
                                     <div class="action-group">
                                         <button class="btn btn-success btn-sm" @onclick="() => SaveCamera(cam.Id)">Lưu</button>
                                         <button class="btn btn-secondary btn-sm" @onclick="CancelEdit">Hủy</button>
@@ -69,10 +96,15 @@
                                         <strong class="cam-name">@cam.Name</strong>
                                         <code class="cam-url">@cam.RtspUrl</code>
                                     </div>
-                                    <div class="actions">
-                                        <button class="btn btn-warning btn-sm" @onclick="() => StartEdit(cam)">Sửa</button>
-                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteCamera(cam.Id)">Xóa</button>
-                                    </div>
+                                    
+                                    <!-- 👇 ADMIN 1 CHỈ XEM, KHÔNG CÓ NÚT SỬA/XÓA -->
+                                    @if (isFullAdmin)
+                                    {
+                                        <div class="actions">
+                                            <button class="btn btn-warning btn-sm" @onclick="() => StartEdit(cam)">Sửa</button>
+                                            <button class="btn btn-danger btn-sm" @onclick="() => DeleteCamera(cam.Id)">Xóa</button>
+                                        </div>
+                                    }
                                 </div>
                             }
                         </li>
@@ -80,24 +112,37 @@
                 </ul>
             </div>
 
-            <!-- ... (Phần Quản lý Video giữ nguyên) ... -->
+            <!-- ... QUẢN LÝ VIDEO ... -->
             <div class="page-section">
-                <div class="section-header">
-                    <h2 class="section-title">🎬 Quản lý Video</h2>
-                    <button class="btn btn-success btn-sm" @onclick="ExportExcel">📥 Xuất Excel</button>
+                <div class="section-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <h2 class="section-title mb-0">🎬 Quản lý Video</h2>
+                    
+                    <div class="d-flex gap-2 align-items-center">
+                        <div class="input-group input-group-sm" style="width: 250px;">
+                            <input type="text" 
+                                   class="form-control" 
+                                   placeholder="🔍 Tìm Mã QR..." 
+                                   @bind="searchQrKeyword" 
+                                   @bind:event="oninput" 
+                                   @onkeyup="FilterVideos"/>
+                            <button class="btn btn-outline-secondary" @onclick="FilterVideos">Tìm</button>
+                        </div>
+
+                        <button class="btn btn-success btn-sm" @onclick="ExportExcel">📥 Xuất Excel</button>
+                    </div>
                 </div>
-                <!-- ... Bảng video giữ nguyên ... -->
-                @if (videos.Count == 0)
+
+                @if (filteredVideos.Count == 0)
                 {
-                    <p class="text-muted">Chưa có video nào.</p>
+                    <p class="text-muted mt-3">Không tìm thấy video nào.</p>
                 }
                 else
                 {
-                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto; margin-top: 15px;">
                         <table class="table admin-table">
                             <thead>
                                 <tr>
-                                    <th>ID</th>
+                                    <th style="width: 60px;">STT</th>
                                     <th>Mã QR</th>
                                     <th>Người ghi</th>
                                     <th>Trạm</th>
@@ -106,17 +151,24 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var v in videos)
+                                @{ int stt = 1; }
+                                @foreach (var v in filteredVideos)
                                 {
                                     <tr>
-                                        <td>@v.Id</td>
+                                        <td>@(stt++)</td>
                                         <td><span class="badge-qr">@v.QrCode</span></td>
                                         <td>@v.RecordedBy</td>
                                         <td>@v.StationName</td>
                                         <td>@v.StartTime.ToString("dd/MM/yyyy HH:mm")</td>
                                         <td>
+                                            <!-- Nút XEM -->
                                             <button class="btn btn-info btn-sm text-white" @onclick="() => ViewVideo(v)" style="margin-right:5px;">👁️ Xem</button>
-                                            <button class="btn btn-danger btn-sm" @onclick="() => DeleteVideo(v.Id)">Xóa</button>
+                                            
+                                            <!-- Nút XÓA (Chỉ Admin) -->
+                                            @if (isFullAdmin)
+                                            {
+                                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteVideo(v.Id)">Xóa</button>
+                                            }
                                         </td>
                                     </tr>
                                 }
@@ -127,35 +179,42 @@
             </div>
 
             <!-- =========================================
-                 2. CÀI ĐẶT HỆ THỐNG (MỚI)
+                 2. CÀI ĐẶT HỆ THỐNG (CHỈ ADMIN TOÀN QUYỀN)
                  ========================================= -->
-            <div class="page-section mt-4">
-                <h2 class="section-title">⚙️ Cài đặt hệ thống</h2>
-                <div class="settings-card p-4 border rounded bg-light">
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Tự động xóa video sau (ngày):</label>
-                        <div class="d-flex gap-2" style="max-width: 300px;">
-                            <input type="number" class="form-control" @bind="retentionDays" min="1" max="365" />
-                            <button class="btn btn-primary" @onclick="SaveSettings" disabled="@isSavingSettings">
-                                @(isSavingSettings ? "Đang lưu..." : "Lưu cài đặt")
-                            </button>
+            @if (isFullAdmin)
+            {
+                <div class="page-section mt-4">
+                    <h2 class="section-title">⚙️ Cài đặt hệ thống</h2>
+                    <div class="settings-card p-4 border rounded bg-light">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Tự động xóa video sau (ngày):</label>
+                            <div class="d-flex gap-2" style="max-width: 300px;">
+                                <input type="number" class="form-control" @bind="retentionDays" min="1" max="365" />
+                                <button class="btn btn-primary" @onclick="SaveSettings" disabled="@isSavingSettings">
+                                    @(isSavingSettings ? "Đang lưu..." : "Lưu cài đặt")
+                                </button>
+                            </div>
+                            <small class="text-muted">Hệ thống sẽ tự động quét và xóa các video cũ hơn số ngày này vào lúc 00:00 hàng ngày.</small>
                         </div>
-                        <small class="text-muted">Hệ thống sẽ tự động quét và xóa các video cũ hơn số ngày này vào lúc 00:00 hàng ngày.</small>
+                        @if (!string.IsNullOrEmpty(settingMessage))
+                        {
+                            <div class="alert alert-info mt-2">@settingMessage</div>
+                        }
                     </div>
-                    @if (!string.IsNullOrEmpty(settingMessage))
-                    {
-                        <div class="alert alert-info mt-2">@settingMessage</div>
-                    }
                 </div>
-            </div>
+            }
 
         </div>
 
-        <!-- ... (Phần Modal Video giữ nguyên) ... -->
+        <!-- ... (Phần Modal Video ĐÃ CẬP NHẬT TUA) ... -->
         @if (showVideoModal)
         {
             <div class="modal-backdrop fade show"></div>
-            <div class="modal fade show d-block" tabindex="-1">
+            <!-- 👇 Thêm @ref, @onkeydown và style outline để bắt phím -->
+            <div class="modal fade show d-block" tabindex="-1" 
+                 @ref="videoModalRef" 
+                 @onkeydown="HandleModalKeyDown"
+                 style="outline: none;">
                 <div class="modal-dialog modal-lg modal-dialog-centered">
                     <div class="modal-content">
                         <div class="modal-header">
@@ -163,9 +222,30 @@
                             <button type="button" class="btn-close" @onclick="CloseVideoModal"></button>
                         </div>
                         <div class="modal-body text-center bg-black">
-                            <video controls autoplay style="width: 100%; max-height: 70vh;">
+                            <!-- 👇 Thêm ID để JS tìm thấy -->
+                            <video id="adminVideoPlayer" controls autoplay style="width: 100%; max-height: 60vh;">
                                 <source src="@currentVideoUrl" type="video/mp4">
+                                Trình duyệt của bạn không hỗ trợ thẻ video.
                             </video>
+
+                            <!-- 👇 THANH ĐIỀU KHIỂN TUA VIDEO -->
+                            <div class="mt-3 d-flex justify-content-center gap-3">
+                                <button class="btn btn-outline-light" @onclick="() => SeekVideo(-10)">
+                                    ⏪ Lùi 10s
+                                </button>
+                                <button class="btn btn-outline-light" @onclick="() => SeekVideo(-5)">
+                                    ⏪ 5s (←)
+                                </button>
+                                <button class="btn btn-outline-light" @onclick="() => SeekVideo(5)">
+                                    5s ⏩ (→)
+                                </button>
+                                <button class="btn btn-outline-light" @onclick="() => SeekVideo(10)">
+                                    Tiến 10s ⏩
+                                </button>
+                            </div>
+                            <div class="text-white mt-2 small">
+                                💡 Mẹo: Dùng phím mũi tên Trái/Phải để tua nhanh
+                            </div>
                         </div>
                         <div class="modal-footer">
                             <a href="@currentVideoUrl" download="@currentVideoTitle" class="btn btn-primary">⬇️ Tải về</a>
@@ -178,11 +258,12 @@
 
     </Authorized>
     <NotAuthorized>
-        <!-- ... (Giữ nguyên) ... -->
-        <div class="text-center mt-5" style="padding-top: 50px;">
-            <h3 class="text-danger">⛔ Truy cập bị từ chối</h3>
-            <p>Bạn không có quyền truy cập trang này.</p>
-            <button class="btn btn-primary" @onclick='() => Nav.NavigateTo("/login")'>Về trang đăng nhập</button>
+        <div class="d-flex flex-column justify-content-center align-items-center" style="height: 50vh;">
+            <div class="spinner-border text-primary mb-3" role="status"></div>
+            <div class="text-muted">Đang kiểm tra quyền Admin...</div>
+            <button class="btn btn-link mt-3 text-muted" @onclick='() => Nav.NavigateTo("/login")' style="font-size: 0.9rem;">
+                Không tự động chuyển? Bấm vào đây.
+            </button>
         </div>
     </NotAuthorized>
 </AuthorizeView>
@@ -205,7 +286,9 @@
 @code {
     // ... (Giữ nguyên các biến State cũ) ...
     private List<Camera> cameras = new();
-    private List<VideoLog> videos = new();
+    private List<VideoLog> videos = new(); // Gốc
+    private List<VideoLog> filteredVideos = new(); // Hiển thị
+    
     private string newCamName = "";
     private string newCamRtsp = "";
     private int? editingCamId = null;
@@ -216,32 +299,56 @@
     private string currentVideoUrl = "";
     private string currentVideoTitle = "";
 
-    // --- State Mới cho Settings ---
-    private int retentionDays = 30; // Mặc định 30 ngày
+    private string searchQrKeyword = "";
+
+    // Settings
+    private int retentionDays = 30; 
     private bool isSavingSettings = false;
     private string settingMessage = "";
+    
+    // Quyền
+    private bool isFullAdmin = false;
+
+    // 👇 Tham chiếu đến Modal để Focus
+    private ElementReference videoModalRef;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
+            if (AuthStateProvider is CustomAuthStateProvider customAuth)
+            {
+                await customAuth.LoadUserFromLocalStorage();
+            }
+
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            if (!authState.User.Identity.IsAuthenticated || !authState.User.IsInRole("admin"))
+            var user = authState.User;
+            
+            if (!user.Identity.IsAuthenticated)
             {
                 Nav.NavigateTo("/login");
                 return;
             }
 
+            bool isRoleAdmin = user.IsInRole("admin");
+            bool isRoleAdmin1 = user.IsInRole("admin1");
+
+            if (!isRoleAdmin && !isRoleAdmin1)
+            {
+                Nav.NavigateTo("/login"); 
+                return;
+            }
+
+            isFullAdmin = isRoleAdmin;
+
             await LoadData();
-            await LoadSettings(); // Tải cài đặt khi vào trang
+            if (isFullAdmin) await LoadSettings();
             StateHasChanged();
         }
     }
 
-    // Helper để highlight menu đang chọn
     private bool IsActive(string href) => Nav.Uri.EndsWith(href, StringComparison.OrdinalIgnoreCase);
 
-    // ... (Giữ nguyên LoadData, Camera logic, Video View logic) ...
     private async Task LoadData()
     {
         try
@@ -249,32 +356,88 @@
             await AttachToken();
             cameras = await Http.GetFromJsonAsync<List<Camera>>("api/cameras") ?? new();
             videos = await Http.GetFromJsonAsync<List<VideoLog>>("api/videos") ?? new();
+            FilterVideos(); 
         }
         catch { }
     }
 
-    private void ViewVideo(VideoLog video)
-    { /* Giữ nguyên logic cũ */
+    private void FilterVideos()
+    {
+        if (string.IsNullOrWhiteSpace(searchQrKeyword))
+        {
+            filteredVideos = videos.ToList();
+        }
+        else
+        {
+            filteredVideos = videos
+                .Where(v => !string.IsNullOrEmpty(v.QrCode) && 
+                            v.QrCode.Contains(searchQrKeyword, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
+
+    // 👇 CẬP NHẬT HÀM NÀY: Chuyển thành Async để Focus vào Modal
+    private async Task ViewVideo(VideoLog video)
+    {
         try
         {
             var fileName = Path.GetFileName(video.FilePath);
             currentVideoUrl = $"videos/{video.StationName}/{fileName}";
             currentVideoTitle = $"{video.QrCode} ({video.StationName})";
             showVideoModal = true;
+            
+            // Render lại UI để Modal xuất hiện
+            StateHasChanged();
+            
+            // Đợi 1 chút để DOM cập nhật xong
+            await Task.Delay(100);
+            
+            // Focus vào Modal để nhận phím ngay lập tức
+            await videoModalRef.FocusAsync();
         }
         catch { }
     }
+    
     private void CloseVideoModal() { showVideoModal = false; currentVideoUrl = ""; }
 
+    // 👇 HÀM XỬ LÝ PHÍM BẤM
+    private async Task HandleModalKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "ArrowLeft")
+        {
+            await SeekVideo(-5); // Lùi 5s
+        }
+        else if (e.Key == "ArrowRight")
+        {
+            await SeekVideo(5); // Tiến 5s
+        }
+        else if (e.Code == "Space")
+        {
+            // Tùy chọn: Space để Pause/Play
+            await JS.InvokeVoidAsync("eval", "var v = document.getElementById('adminVideoPlayer'); if(v.paused) v.play(); else v.pause();");
+        }
+    }
+
+    // 👇 HÀM TUA VIDEO (SEEK)
+    private async Task SeekVideo(int seconds)
+    {
+        try
+        {
+            // Gọi lệnh JS trực tiếp để chỉnh thời gian video
+            await JS.InvokeVoidAsync("eval", $"var v = document.getElementById('adminVideoPlayer'); if(v) v.currentTime += {seconds};");
+        }
+        catch { }
+    }
+
     private async Task AddCamera()
-    { /* Giữ nguyên logic cũ */
+    {
         if (string.IsNullOrWhiteSpace(newCamName)) return;
         await AttachToken();
         await Http.PostAsJsonAsync("api/cameras", new Camera { Name = newCamName, RtspUrl = newCamRtsp });
         newCamName = ""; newCamRtsp = ""; await LoadData();
     }
     private async Task DeleteCamera(int id)
-    { /* Giữ nguyên logic cũ */
+    {
         if (await JS.InvokeAsync<bool>("confirm", "Xóa camera này?"))
         {
             await AttachToken(); await Http.DeleteAsync($"api/cameras/{id}"); await LoadData();
@@ -282,13 +445,35 @@
     }
     private void StartEdit(Camera c) { editingCamId = c.Id; editCamName = c.Name; editCamRtsp = c.RtspUrl; }
     private void CancelEdit() => editingCamId = null;
+
     private async Task SaveCamera(int id)
-    { /* Giữ nguyên logic cũ */
-        await AttachToken(); await Http.PutAsJsonAsync($"api/cameras/{id}", new Camera { Id = id, Name = editCamName, RtspUrl = editCamRtsp });
-        editingCamId = null; await LoadData();
+    {
+        try 
+        {
+            await AttachToken();
+            var res = await Http.PutAsJsonAsync($"api/cameras/{id}", new Camera { Id = id, Name = editCamName, RtspUrl = editCamRtsp });
+            
+            if (res.IsSuccessStatusCode)
+            {
+                editingCamId = null;
+                await LoadData();
+                await JS.InvokeVoidAsync("alert", "✅ Cập nhật thành công!");
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                if (string.IsNullOrWhiteSpace(err)) err = $"Lỗi {(int)res.StatusCode}";
+                await JS.InvokeVoidAsync("alert", $"❌ Lỗi cập nhật: {err}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"❌ Lỗi kết nối: {ex.Message}");
+        }
     }
+
     private async Task ExportExcel()
-    { /* Giữ nguyên logic cũ */
+    {
         try
         {
             await AttachToken();
@@ -302,18 +487,19 @@
         catch { }
     }
     private async Task Logout()
-    { /* Giữ nguyên logic cũ */
+    {
         await JS.InvokeVoidAsync("localStorage.clear"); Nav.NavigateTo("/login", true);
     }
     private async Task AttachToken()
-    { /* Giữ nguyên logic cũ */
+    {
         var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
         if (!string.IsNullOrEmpty(token)) Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
 
-    // --- LOGIC XÓA VIDEO (Đã cập nhật ở Backend để xóa file vật lý) ---
     private async Task DeleteVideo(int id)
     {
+        if (!isFullAdmin) return;
+
         if (!await JS.InvokeAsync<bool>("confirm", "Hành động này sẽ XÓA VĨNH VIỄN file video khỏi ổ cứng. Tiếp tục?")) return;
 
         await AttachToken();
@@ -328,7 +514,6 @@
         }
     }
 
-    // --- LOGIC SETTINGS ---
     private async Task LoadSettings()
     {
         try
@@ -361,8 +546,6 @@
             settingMessage = "Lỗi: " + ex.Message;
         }
         isSavingSettings = false;
-
-        // Ẩn thông báo sau 3s
         await Task.Delay(3000);
         settingMessage = "";
         StateHasChanged();
