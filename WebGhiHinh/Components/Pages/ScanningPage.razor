@@ -199,15 +199,33 @@
                     <!-- Ô nhập liệu thủ công -->
                     <form @onsubmit="HandleManualSubmit">
                         <div class="scan-input-wrapper">
+                            @* 👇 QUAN TRỌNG: Thêm inputmode="@virtualKeyboardMode" *@
                             <input @ref="inputRef"
                                    type="text"
                                    class="scan-input"
                                    placeholder="Quét mã vào đây..."
+                                   inputmode="@virtualKeyboardMode" 
                                    @bind="manualCode"
                                    disabled="@isSubmitting"
                                    @onblur="RefocusInput" />
                         </div>
                     </form>
+
+                    <!-- 👇 NÚT BẬT/TẮT BÀN PHÍM ẢO (ĐÃ NÂNG CẤP) -->
+                    <div class="d-flex justify-content-center mt-3">
+                        <button type="button" class="btn btn-sm btn-link text-decoration-none" 
+                                @onclick="ToggleKeyboardMode" 
+                                style="font-size: 0.9rem; color: #6b7280; border: 1px dashed #d1d5db; border-radius: 20px; padding: 5px 15px;">
+                            @if (virtualKeyboardMode == "none")
+                            {
+                                <span>📵 Đã <b>TẮT</b> bàn phím ảo (Vẫn Auto-Focus)</span>
+                            }
+                            else
+                            {
+                                <span>⌨️ Đã <b>BẬT</b> bàn phím ảo (Nhập tay)</span>
+                            }
+                        </button>
+                    </div>
 
                     @if (isSubmitting)
                     {
@@ -246,6 +264,15 @@
 
     // 👇 [FIX] Lưu Token vào biến C# để dùng khi đóng trình duyệt (Lúc đó JS LocalStorage không gọi được nữa)
     private string? _cachedToken;
+
+    // 👇 [MỚI] Biến kiểm soát Chế độ bàn phím
+    // "text" = Hiện bàn phím (Mặc định)
+    // "none" = Ẩn bàn phím (Cho máy quét/camera mobile)
+    private string virtualKeyboardMode = "text"; 
+    
+    // AutoFocus luôn bật để đảm bảo máy quét hoạt động, 
+    // chúng ta chỉ điều khiển bàn phím hiển thị hay không bằng inputmode.
+    private bool isAutoFocusEnabled = true;
 
     // --- Element References ---
     private ElementReference videoElement;
@@ -312,16 +339,39 @@
             catch { }
         }
 
-        // Tự động focus ô nhập liệu
-        if (occupiedStation != null && !isSubmitting && !isCameraActive)
+        // Tự động focus ô nhập liệu (Luôn chạy nếu isAutoFocusEnabled = true)
+        if (isAutoFocusEnabled && occupiedStation != null && !isSubmitting && !isCameraActive)
         {
             try { await inputRef.FocusAsync(); } catch { }
         }
     }
 
+    // 👇 [MỚI] Hàm Toggle Chế độ Bàn phím
+    private async Task ToggleKeyboardMode()
+    {
+        if (virtualKeyboardMode == "text")
+        {
+            // Chuyển sang TẮT bàn phím
+            virtualKeyboardMode = "none";
+            // Blur rồi Focus lại để trình duyệt nhận diện thay đổi inputmode
+            await JS.InvokeVoidAsync("eval", "document.activeElement.blur()");
+            await Task.Delay(50); 
+            await RefocusInput();
+        }
+        else
+        {
+            // Chuyển sang BẬT bàn phím (Nhập tay)
+            virtualKeyboardMode = "text";
+            await JS.InvokeVoidAsync("eval", "document.activeElement.blur()");
+            await Task.Delay(50);
+            await RefocusInput();
+        }
+    }
+
     private async Task RefocusInput()
     {
-        if (occupiedStation != null && !isSubmitting)
+        // 👇 Luôn Focus lại nếu AutoFocus bật (mặc định là bật)
+        if (isAutoFocusEnabled && occupiedStation != null && !isSubmitting)
         {
             await Task.Delay(100);
             try { await inputRef.FocusAsync(); } catch { }

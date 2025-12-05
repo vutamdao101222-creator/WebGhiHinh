@@ -49,8 +49,13 @@
                     <span class="badge">Default</span>
                 </div>
                 <div class="video-wrapper">
-                    <!-- 👇 SỬA Ở ĐÂY: Dùng biến StreamBaseUrl thay vì localhost -->
-                    <iframe src="@($"{StreamBaseUrl}/cam1/")" class="video-frame" allow="autoplay" scrolling="no"></iframe>
+                    <!-- 👇 CẬP NHẬT: Thêm allowfullscreen và allow="fullscreen" -->
+                    <iframe src="@($"{StreamBaseUrl}/cam1/")" 
+                            class="video-frame" 
+                            allow="autoplay; fullscreen" 
+                            allowfullscreen 
+                            scrolling="no">
+                    </iframe>
                 </div>
                 <div class="card-footer">
                     <code>Mặc định</code>
@@ -69,8 +74,13 @@
                         }
                     </div>
                     <div class="video-wrapper">
-                        <!-- 👇 SỬA Ở ĐÂY: Dùng biến StreamBaseUrl -->
-                        <iframe src="@($"{StreamBaseUrl}/{cam.Name}/")" class="video-frame" allow="autoplay" scrolling="no"></iframe>
+                        <!-- 👇 CẬP NHẬT: Thêm allowfullscreen và allow="fullscreen" -->
+                        <iframe src="@($"{StreamBaseUrl}/{cam.Name}/")" 
+                                class="video-frame" 
+                                allow="autoplay; fullscreen" 
+                                allowfullscreen 
+                                scrolling="no">
+                        </iframe>
                     </div>
                     <div class="card-footer">
                         <code>@cam.RtspUrl</code>

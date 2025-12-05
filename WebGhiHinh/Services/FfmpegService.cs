@@ -49,10 +49,12 @@ namespace WebGhiHinh.Services
                 throw new FileNotFoundException($"Không tìm thấy 'ffmpeg.exe'. Hãy copy nó vào: {AppDomain.CurrentDomain.BaseDirectory}");
             }
 
-            // 👇 ARGUMENTS QUAN TRỌNG:
-            // -an: Tắt ghi âm (Tránh crash nếu Camera không có mic)
-            // -rtsp_transport tcp: Bắt buộc dùng TCP để hình ảnh không bị vỡ (artifact)
-            string arguments = $"-y -rtsp_transport tcp -i \"{rtspUrl}\" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an \"{fullPath}\"";
+            // 👇 ARGUMENTS ĐÃ ĐƯỢC TỐI ƯU ĐỘ NÉT:
+            // -c:v libx264: Codec phổ biến nhất.
+            // -preset superfast: Chậm hơn ultrafast 1 chút nhưng hình ảnh đẹp hơn nhiều. (Nếu CPU yếu quá bị giật thì đổi lại thành ultrafast)
+            // -crf 18: CHẤT LƯỢNG CAO (Visually Lossless). Mặc định là 23. Số càng nhỏ càng nét (18-20 là rất nét).
+            // -pix_fmt yuv420p: Đảm bảo video xem được trên mọi trình duyệt/điện thoại.
+            string arguments = $"-y -rtsp_transport tcp -i \"{rtspUrl}\" -c:v libx264 -preset superfast -crf 18 -pix_fmt yuv420p -an \"{fullPath}\"";
 
             var psi = new ProcessStartInfo
             {
