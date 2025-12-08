@@ -6,62 +6,75 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
 
-    <!-- Import Namespace cần thiết cho RenderMode -->
     @using Microsoft.AspNetCore.Components.Web
 
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
-    <!-- CSS của ứng dụng -->
+    <!-- App CSS -->
     <link rel="stylesheet" href="app.css" />
     <link rel="stylesheet" href="WebGhiHinh.styles.css" />
     <link rel="icon" type="image/png" href="favicon.png" />
 
     <title>Hệ Thống Ghi Hình</title>
 
-    <!-- 👇 QUAN TRỌNG 1: HeadOutlet để quản lý title/meta động -->
     <HeadOutlet @rendermode="@(new InteractiveServerRenderMode(prerender: false))" />
 </head>
 
 <body>
-    <!-- 👇 QUAN TRỌNG 2: Routes - Nơi hiển thị nội dung các trang (Login, Scan, Admin...) -->
     <Routes @rendermode="@(new InteractiveServerRenderMode(prerender: false))" />
 
-    <!-- Script Blazor (Bắt buộc) -->
+    <!-- Blazor -->
     <script src="_framework/blazor.web.js"></script>
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
-    <!-- Thư viện quét QR (jsQR) - BẮT BUỘC cho trang Scan -->
+    <!-- ✅ jsQR -->
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 
-    <!-- 👇 File JS Camera & QR Code (Khớp với file bạn đã tạo trong wwwroot/js/qrcode.js) -->
-    <script src="js/qrcode.js"></script>
+    <!-- ✅ HLS.js (thư viện thật) -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.16/dist/hls.min.js"></script>
 
-    <!-- Các hàm tiện ích JS bổ sung -->
+    <!-- ✅ FILE AUTO CAM BẠN TỰ VIẾT -->
+    <script src="js/scan-hls.js"></script>
+
+    <!-- ❌ Nếu qrcode.js là bản cũ, dễ đè hàm -> bỏ đi -->
+    @* <script src="js/qrcode.js"></script> *@
+
+    <!-- Helpers -->
     <script>
-        // 1. Quản lý Token (Helper cho Authentication)
+        // ✅ Unified auth helper (tránh define trùng)
         window.auth = {
-            set: (token) => localStorage.setItem('token', token),
+            set: (token, username, role) => {
+                if (token) localStorage.setItem('token', token);
+                if (username) localStorage.setItem('username', username);
+                localStorage.setItem('role', role ?? '');
+            },
+
+            // alias để tương thích code đang gọi auth.get()
             get: () => localStorage.getItem('token'),
-            clear: () => localStorage.removeItem('token')
+
+            getToken: () => localStorage.getItem('token'),
+            getUser: () => localStorage.getItem('username'),
+            getRole: () => localStorage.getItem('role'),
+
+            clear: () => {
+                localStorage.removeItem('token');
+                localStorage.removeItem('username');
+                localStorage.removeItem('role');
+            }
         };
 
-        // 2. Hàm tải file về máy (Dùng cho chức năng Xuất Excel, Tải Video)
         window.downloadFileFromStream = async (fileName, base64) => {
             const link = document.createElement('a');
             link.download = fileName;
-            // Dùng octet-stream để hỗ trợ tải mọi loại file
             link.href = "data:application/octet-stream;base64," + base64;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
         };
-
-        // Lưu ý: Hàm window.playBeep đã được định nghĩa trong file js/qrcode.js
-        // nên không cần khai báo lại ở đây để tránh xung đột.
     </script>
 </body>
 
-</html>   
+</html>

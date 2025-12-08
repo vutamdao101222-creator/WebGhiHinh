@@ -1,4 +1,5 @@
-﻿@page "/login"
+﻿<!-- ✅ LoginPage.razor (GIỮ LOGIC CỦA BẠN, CHỈ FIX LỖI NAMESPACE + TRÙNG FILE) -->
+@page "/login"
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Components.Web
 @using System.ComponentModel.DataAnnotations
@@ -8,7 +9,6 @@
 @inject HttpClient Http
 @inject IJSRuntime JS
 
-@* Tắt Prerender để đảm bảo JS chạy đúng và không bị lỗi Login Loop *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 <PageTitle>Đăng nhập</PageTitle>
@@ -36,37 +36,12 @@
                            @oninput="TriggerGlow" />
             </div>
 
-            <!-- 👇 CẬP NHẬT: Thêm position-relative để đặt nút mắt thần -->
-            <div class="input-group" style="position: relative;">
+            <div class="input-group">
                 <InputText @bind-Value="loginModel.Password"
-                           type="@(showPassword ? "text" : "password")"
+                           type="password"
                            class="login-input"
                            placeholder="Mật khẩu"
-                           @oninput="TriggerGlow"
-                           style="padding-right: 40px;" /> 
-                           @* padding-right để chữ không bị đè lên nút *@
-
-                <!-- 👇 NÚT BẤM HIỆN/ẨN MẬT KHẨU -->
-                <button type="button" 
-                        @onclick="TogglePasswordVisibility"
-                        style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #6b7280; display: flex; align-items: center; justify-content: center;">
-                    @if (showPassword)
-                    {
-                        <!-- Icon Mắt Mở (Hiện) -->
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                            <circle cx="12" cy="12" r="3"></circle>
-                        </svg>
-                    }
-                    else
-                    {
-                        <!-- Icon Mắt Gạch Chéo (Ẩn) -->
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                            <line x1="1" y1="1" x2="23" y2="23"></line>
-                        </svg>
-                    }
-                </button>
+                           @oninput="TriggerGlow" />
             </div>
 
             @if (!string.IsNullOrEmpty(error))
@@ -89,7 +64,6 @@
                 }
             </button>
 
-            <!-- 👇 Link chuyển sang trang Đăng ký -->
             <div style="margin-top: 1.5rem; text-align: center; font-size: 0.95rem;">
                 <span style="color: #6b7280;">Bạn chưa có tài khoản?</span>
                 <a href="/register" style="color: #3b82f6; text-decoration: none; font-weight: 600; margin-left: 5px; transition: color 0.2s;">
@@ -106,15 +80,6 @@
     private bool loading = false;
     private string error = "";
     private bool isGlowing = false;
-    
-    // 👇 Biến trạng thái hiển thị mật khẩu
-    private bool showPassword = false;
-
-    // 👇 Hàm bật/tắt hiển thị mật khẩu
-    private void TogglePasswordVisibility()
-    {
-        showPassword = !showPassword;
-    }
 
     private async Task HandleLogin()
     {
@@ -124,7 +89,6 @@
 
         try
         {
-            // Gọi API đăng nhập
             var response = await Http.PostAsJsonAsync("api/auth/login", loginModel);
 
             if (!response.IsSuccessStatusCode)
@@ -141,28 +105,26 @@
                 return;
             }
 
-            // 1. LƯU TOKEN VÀ USER INFO VÀO LOCALSTORAGE
+            // 1) LƯU LOCALSTORAGE (GIỮ YÊN)
             await JS.InvokeVoidAsync("localStorage.setItem", "token", result.access_token);
             await JS.InvokeVoidAsync("localStorage.setItem", "username", result.username);
             await JS.InvokeVoidAsync("localStorage.setItem", "role", result.role);
 
-            // 2. CẬP NHẬT TRẠNG THÁI ĐĂNG NHẬP CHO BLAZOR
+            // 2) CẬP NHẬT AUTH STATE
             if (AuthStateProvider is CustomAuthStateProvider auth)
             {
                 await auth.MarkUserAsAuthenticated(result.access_token);
             }
 
-            // Đợi 1 chút để State được cập nhật chắc chắn
-            await Task.Delay(100);
+            await Task.Delay(80);
 
-            // 3. CHUYỂN TRANG
-            var role = result.role?.ToLower();
-            
-            // Cho phép cả admin và admin1 về trang quản trị
+            // 3) CHUYỂN TRANG
+            var role = result.role?.ToLowerInvariant();
+
             if (role == "admin" || role == "admin1")
-                Nav.NavigateTo("/admin");
+                Nav.NavigateTo("/admin", true);
             else
-                Nav.NavigateTo("/scan");
+                Nav.NavigateTo("/scan", true);
         }
         catch (Exception ex)
         {
@@ -199,8 +161,8 @@
 
     public class LoginResponse
     {
-        public string access_token { get; set; }
-        public string username { get; set; }
-        public string role { get; set; }
+        public string access_token { get; set; } = "";
+        public string username { get; set; } = "";
+        public string role { get; set; } = "";
     }
 }

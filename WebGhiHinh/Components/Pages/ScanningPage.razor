@@ -1,13 +1,10 @@
 ﻿@page "/scan"
-@using Microsoft.AspNetCore.Authorization
-@using WebGhiHinh.Models
-@using WebGhiHinh.Controllers
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
 @using System.Text.Json
 @using System.Net.Http.Headers
-
-@* 👇 THÊM DÒNG NÀY: Hãy thay đổi 'WebGhiHinh.Services' thành namespace thực tế chứa file CustomAuthStateProvider.cs của bạn (ví dụ: WebGhiHinh.Data, WebGhiHinh.Auth) *@
-@using WebGhiHinh.Services 
+@using WebGhiHinh.Models
+@using WebGhiHinh.Services
 @using WebGhiHinh.Data
 
 @inject HttpClient Http
@@ -15,87 +12,64 @@
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
 
-@* 👇 THAY ĐỔI: Dùng IAsyncDisposable để xử lý bất đồng bộ khi hủy component *@
 @implements IAsyncDisposable
-
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 <PageTitle>Quét Mã QR</PageTitle>
 
 <AuthorizeView>
-    <Authorized>
+    <Authorized Context="authCtx">
         <div class="scan-container">
             <div class="scan-card">
-                
-                <!-- HEADER & ACTIONS (Đã sửa layout để không bị chồng nút) -->
+
+                <!-- HEADER -->
                 <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
                     <div>
                         <span class="text-muted small">Xin chào,</span>
-                        <strong class="text-primary">@context.User.Identity?.Name</strong>
+                        <strong class="text-primary">@authCtx.User.Identity?.Name</strong>
                     </div>
-                    
                     <div class="d-flex align-items-center gap-2">
-                        <!-- Nút Rời Trạm (Chỉ hiện khi đang chiếm trạm) -->
                         @if (occupiedStation != null)
                         {
-                            <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1" @onclick="ReleaseStation" title="Rời trạm để chọn máy khác">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                                    <polyline points="16 17 21 12 16 7" />
-                                    <line x1="21" x2="9" y1="12" y2="12" />
-                                </svg>
-                                Rời trạm
-                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="ReleaseStation">Rời trạm</button>
                         }
-
-                        <!-- Nút Đăng Xuất -->
-                        <button class="btn btn-sm btn-outline-danger d-flex align-items-center gap-1" @onclick="Logout">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                                <polyline points="16 17 21 12 16 7"/>
-                                <line x1="21" x2="9" y1="12" y2="12"/>
-                            </svg>
-                            Đăng xuất
-                        </button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="Logout">Đăng xuất</button>
                     </div>
                 </div>
 
-                <!-- HIỂN THỊ LỖI CHUNG (NẾU CÓ) -->
+                <!-- THÔNG BÁO -->
                 @if (!string.IsNullOrEmpty(statusMessage))
                 {
-                    <div class="alert @(statusType == "success" ? "alert-success" : (statusType == "error" ? "alert-danger" : (statusType == "warning" ? "alert-warning" : "alert-info"))) mb-3">
+                    <div class="alert @(statusType == "success" ? "alert-success" : statusType == "error" ? "alert-danger" : "alert-info") py-2 mb-3 text-center"
+                         style="font-size: 0.9rem;">
                         @statusMessage
                     </div>
                 }
 
-                @if (occupiedStation == null)
+                @if (!authReady)
                 {
-                    /* =========================================
-                       GIAO DIỆN 1: CHỌN TRẠM LÀM VIỆC
-                       ========================================= */
-                    <h1 class="scan-header">Vui lòng chọn trạm làm việc</h1>
-
+                    <div class="text-center py-4">
+                        <div class="spinner"></div>
+                    </div>
+                }
+                else if (occupiedStation == null)
+                {
+                    <h1 class="scan-header">Chọn trạm làm việc</h1>
                     @if (loading)
                     {
                         <div class="spinner"></div>
-                        <p style="color: #6b7280; margin-top: 10px;">Đang kiểm tra trạng thái trạm...</p>
-                    }
-                    else if (stations.Count == 0)
-                    {
-                        <p class="text-muted">Chưa có trạm nào được tạo. Vui lòng liên hệ Admin.</p>
                     }
                     else
                     {
                         <div class="station-grid">
                             @foreach (var station in stations)
                             {
-                                var isBusy = station.CurrentUserId != null;
-                                <div class="station-box @(isBusy ? "disabled" : "")"
+                                <div class="station-box @(station.CurrentUserId != null ? "disabled" : "")"
                                      @onclick="() => OccupyStation(station)">
                                     <span class="station-box-name">@station.Name</span>
-                                    @if (isBusy)
+                                    @if (station.CurrentUserId != null)
                                     {
-                                        <span class="station-box-user">🔴 @(station.CurrentUser?.Username ?? "Đang bận")</span>
+                                        <span class="station-box-user">🔴 Bận</span>
                                     }
                                     else
                                     {
@@ -108,286 +82,425 @@
                 }
                 else
                 {
-                    /* =========================================
-                       GIAO DIỆN 2: QUÉT MÃ & GHI HÌNH
-                       ========================================= */
-
-                    // Đã xóa nút Rời trạm cũ ở đây để tránh bị chồng
-
-                    <h2 class="scan-header">Trạm: @occupiedStation.Name</h2>
-
-                    <!-- Live Preview -->
-                    @if (!string.IsNullOrEmpty(occupiedStation.Camera?.Name))
-                    {
-                        <div class="live-feed-card">
-                            <div class="live-feed-header">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>
-                                Live Preview (@occupiedStation.Camera.Name)
-                            </div>
-                            <div class="live-feed-content">
-                                <!-- 👇 Tự động lấy IP Server cho Live Preview -->
-                                <iframe src="@($"{StreamBaseUrl}/{occupiedStation.Camera.Name}/")"
-                                        class="live-iframe"
-                                        allow="autoplay"
-                                        scrolling="no"></iframe>
-                            </div>
+                    <!-- CONTROL BAR -->
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <h2 class="scan-header mb-0" style="font-size: 1.25rem;">@occupiedStation.Name</h2>
+                            @if (!string.IsNullOrEmpty(currentRecordingQR))
+                            {
+                                <span class="badge bg-danger animate-pulse">🔴 REC: @currentRecordingQR</span>
+                            }
                         </div>
-                    }
 
-                    <!-- Trạng thái ghi hình -->
-                    @if (!string.IsNullOrEmpty(currentRecordingQR))
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                ⚙️ @(scanMode == ScanMode.BarcodeGun ? "🔫 Máy Bắn" : "🤖 Auto Cam")
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <a class="dropdown-item" href="#" @onclick="() => SetScanMode(ScanMode.BarcodeGun)">
+                                        🔫 Chế độ 1: Máy Bắn Barcode
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" @onclick="() => SetScanMode(ScanMode.CameraAuto)">
+                                        🤖 Chế độ 2: Camera Tự Động (HLS)
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- VIDEO -->
+                    <div class="live-feed-card">
+                        <div class="live-feed-content">
+                            @if (scanMode == ScanMode.BarcodeGun)
+                            {
+                                @if (occupiedStation.Camera != null)
+                                {
+                                    <iframe src="@($"{StreamBaseUrl}/{occupiedStation.Camera.Name}/")"
+                                            class="live-iframe"
+                                            allow="autoplay"
+                                            scrolling="no"></iframe>
+                                }
+                            }
+                            else
+                            {
+                                <video @ref="videoElement" muted playsinline autoplay class="scan-video"></video>
+                                <canvas @ref="canvasElement" class="scan-canvas"></canvas>
+
+                                <div class="play-overlay">
+                                    <button class="btn btn-light rounded-circle shadow p-3"
+                                            @onclick="StartRtspScan" style="opacity: 0.7;">
+                                        ▶️
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    @if (scanMode == ScanMode.BarcodeGun)
                     {
-                        <div class="recording-status-box active">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-pulse"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
-                            Đang ghi hình: @currentRecordingQR
+                        <form @onsubmit="HandleManualSubmit" class="mt-3">
+                            <input @ref="inputRef"
+                                   class="form-control text-center"
+                                   placeholder="Bắn mã vào đây..."
+                                   @bind="manualCode"
+                                   inputmode="@virtualKeyboardMode"
+                                   @onblur="RefocusInput" />
+                        </form>
+
+                        <div class="text-center mt-2">
+                            <button class="btn btn-sm btn-link text-secondary" @onclick="ToggleKeyboardMode">
+                                @(virtualKeyboardMode == "none" ? "📵 Bàn phím: TẮT" : "⌨️ Bàn phím: BẬT")
+                            </button>
                         </div>
                     }
                     else
                     {
-                        <div class="recording-status-box inactive">
-                            ⚪ Sẵn sàng quét (Chưa ghi)
+                        <div class="text-center mt-1">
+                            <small class="text-muted" style="font-size: 0.7rem;">
+                                Scan Source: @($"{HlsBaseUrl}/{occupiedStation.Camera?.Name}/index.m3u8")
+                            </small>
                         </div>
                     }
 
-                    <!-- Camera Quét Mã -->
-                    @if (isCameraActive)
-                    {
-                        <div class="qr-camera @(qrFound ? "qr-found" : "")">
-                            <video @ref="videoElement" class="qr-video" muted playsinline></video>
-                            <canvas @ref="canvasElement" class="qr-canvas" hidden></canvas>
-                            <div class="qr-camera-overlay">
-                                <div class="qr-scan-line"></div>
-                                <div class="qr-corner-bracket top-left"></div>
-                                <div class="qr-corner-bracket top-right"></div>
-                                <div class="qr-corner-bracket bottom-left"></div>
-                                <div class="qr-corner-bracket bottom-right"></div>
-                            </div>
-                        </div>
-                    }
-
-                    <!-- Nút Điều Khiển -->
-                    <div class="qr-button-group">
-                        @if (!isCameraActive)
-                        {
-                            <button class="qr-button" @onclick="StartCamera" disabled="@(!isJsqrLoaded)">
-                                @if (!isJsqrLoaded)
-                                {
-                                    <div class="spinner" style="width:16px;height:16px;border-width:2px;margin:0;"></div>
-                                }
-                                else
-                                {
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>
-                                }
-                                @(isJsqrLoaded ? "Bật Camera Quét" : "Đang tải thư viện...")
+                    <!-- LỊCH SỬ -->
+                    <div class="mt-3">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="fw-semibold" style="font-size:0.9rem;">Lịch sử quét gần nhất</span>
+                            <button class="btn btn-sm btn-outline-secondary" style="font-size:0.75rem;" @onclick="ClearScanLogs">
+                                Xóa lịch sử
                             </button>
+                        </div>
+
+                        @if (scanLogs.Any())
+                        {
+                            <div class="table-responsive" style="max-height:220px; overflow-y:auto;">
+                                <table class="table table-sm table-striped mb-0" style="font-size:0.8rem;">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th style="width:140px;">Thời gian</th>
+                                            <th>Mã QR</th>
+                                            <th style="width:120px;">Hành động</th>
+                                            <th>Trạng thái</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var log in scanLogs)
+                                        {
+                                            <tr>
+                                                <td>@log.Time.ToString("HH:mm:ss")</td>
+                                                <td class="text-truncate" title="@log.QrCode">@log.QrCode</td>
+                                                <td>@log.Action</td>
+                                                <td class="text-truncate" title="@log.Message">@log.Message</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
                         }
                         else
                         {
-                            <button class="qr-button qr-button-stop" @onclick="StopCamera">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23" /><path d="M21 21l-2-2m-2 5l-2-2m2-12l1.5-1.5a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-1m-3-3l-3-3m-3 3l-2-2m-2-2l-2-2m-2 5l-2-2m5-5l3-3m3 3l3 3" /></svg>
-                                Tắt Camera
-                            </button>
-
-                            <button class="qr-button flash-button @(isFlashOn ? "on" : "")" @onclick="ToggleFlash">
-                                Flash @(isFlashOn ? "ON" : "OFF")
-                            </button>
+                            <div class="text-muted" style="font-size:0.8rem;">Chưa có lần quét nào.</div>
                         }
                     </div>
-
-                    <div class="text-divider">--- hoặc nhập thủ công ---</div>
-
-                    <!-- Ô nhập liệu thủ công -->
-                    <form @onsubmit="HandleManualSubmit">
-                        <div class="scan-input-wrapper">
-                            @* 👇 QUAN TRỌNG: Thêm inputmode="@virtualKeyboardMode" *@
-                            <input @ref="inputRef"
-                                   type="text"
-                                   class="scan-input"
-                                   placeholder="Quét mã vào đây..."
-                                   inputmode="@virtualKeyboardMode" 
-                                   @bind="manualCode"
-                                   disabled="@isSubmitting"
-                                   @onblur="RefocusInput" />
-                        </div>
-                    </form>
-
-                    <!-- 👇 NÚT BẬT/TẮT BÀN PHÍM ẢO (ĐÃ NÂNG CẤP) -->
-                    <div class="d-flex justify-content-center mt-3">
-                        <button type="button" class="btn btn-sm btn-link text-decoration-none" 
-                                @onclick="ToggleKeyboardMode" 
-                                style="font-size: 0.9rem; color: #6b7280; border: 1px dashed #d1d5db; border-radius: 20px; padding: 5px 15px;">
-                            @if (virtualKeyboardMode == "none")
-                            {
-                                <span>📵 Đã <b>TẮT</b> bàn phím ảo (Vẫn Auto-Focus)</span>
-                            }
-                            else
-                            {
-                                <span>⌨️ Đã <b>BẬT</b> bàn phím ảo (Nhập tay)</span>
-                            }
-                        </button>
-                    </div>
-
-                    @if (isSubmitting)
-                    {
-                        <div class="spinner"></div>
-                    }
                 }
             </div>
         </div>
     </Authorized>
+
     <NotAuthorized>
-        @* 👇 [FIX F5]: Thay vì redirect ngay (gây lỗi khi F5), hiển thị màn hình chờ.
-           Logic trong OnAfterRenderAsync sẽ tự lo việc nạp lại user. *@
-        <div class="d-flex flex-column justify-content-center align-items-center" style="height: 50vh;">
-             <div class="spinner-border text-primary mb-3" role="status"></div>
-             <div class="text-muted">Đang kiểm tra đăng nhập...</div>
+        <!-- ✅ KHÔNG navigate ở đây -->
+        <div class="text-center py-4">
+            <div class="spinner"></div>
         </div>
     </NotAuthorized>
 </AuthorizeView>
 
 @code {
-    // --- State Variables ---
+    public enum ScanMode { BarcodeGun = 1, CameraAuto = 2 }
+
+    private sealed class ScanLogEntry
+    {
+        public DateTime Time { get; set; } = DateTime.Now;
+        public string QrCode { get; set; } = "";
+        public string Action { get; set; } = "";
+        public string Message { get; set; } = "";
+    }
+
+    private ScanMode scanMode = ScanMode.BarcodeGun;
+
     private List<Station> stations = new();
-    private Station? occupiedStation = null;
+    private Station? occupiedStation;
+
     private string manualCode = "";
-    private string? currentRecordingQR = null;
+    private string? currentRecordingQR;
+
     private string statusMessage = "";
     private string statusType = "info";
-    private string StreamBaseUrl = "http://localhost:8889"; // Mặc định
+
+    private readonly List<ScanLogEntry> scanLogs = new();
+    private const int MaxScanLogs = 20;
+
+    private string StreamBaseUrl = "http://localhost:8889";
+    private string HlsBaseUrl = "http://localhost:8888";
 
     private bool loading = true;
-    private bool isCameraActive = false;
     private bool isSubmitting = false;
-    private bool isJsqrLoaded = false;
-    private bool qrFound = false;
-    private bool isFlashOn = false;
+    private bool isProcessingScan = false;
 
-    // 👇 [FIX] Lưu Token vào biến C# để dùng khi đóng trình duyệt (Lúc đó JS LocalStorage không gọi được nữa)
-    private string? _cachedToken;
-
-    // 👇 [MỚI] Biến kiểm soát Chế độ bàn phím
-    // "text" = Hiện bàn phím (Mặc định)
-    // "none" = Ẩn bàn phím (Cho máy quét/camera mobile)
-    private string virtualKeyboardMode = "text"; 
-    
-    // AutoFocus luôn bật để đảm bảo máy quét hoạt động, 
-    // chúng ta chỉ điều khiển bàn phím hiển thị hay không bằng inputmode.
+    private string virtualKeyboardMode = "text";
     private bool isAutoFocusEnabled = true;
 
-    // --- Element References ---
+    private bool authReady = false;
+
     private ElementReference videoElement;
     private ElementReference canvasElement;
     private ElementReference inputRef;
-    private DotNetObjectReference<ScanningPage>? objRef;
 
-    // --- Lifecycle Methods ---
-    
-    // 👇 Tự động lấy IP cho Stream
+    private DotNetObjectReference<ScanningPage>? objRef;
+    private string? _cachedToken;
+
     protected override void OnInitialized()
     {
-        try 
+        try
         {
             var uri = new Uri(Nav.BaseUri);
-            StreamBaseUrl = $"http://{uri.Host}:8889";
+            string host = uri.Host;
+            StreamBaseUrl = $"http://{host}:8889";
+            HlsBaseUrl = $"http://{host}:8888";
         }
         catch { }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (!firstRender)
         {
-            // 👇 1. Nạp lại thông tin đăng nhập từ LocalStorage
-            if (AuthStateProvider is CustomAuthStateProvider customAuth)
+            if (scanMode == ScanMode.BarcodeGun && occupiedStation != null && !isSubmitting && isAutoFocusEnabled)
             {
-                await customAuth.LoadUserFromLocalStorage();
+                try { await inputRef.FocusAsync(); } catch { }
             }
-
-            // 👇 2. Kiểm tra Auth SAU KHI đã cố gắng load
-            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            if (!authState.User.Identity.IsAuthenticated)
-            {
-                // Chỉ redirect nếu sau khi load token mà vẫn không có user
-                Nav.NavigateTo("/login", true);
-                return;
-            }
-
-            try
-            {
-                isJsqrLoaded = await JS.InvokeAsync<bool>("eval", "typeof jsQR !== 'undefined'");
-                await LoadStations();
-                
-                // 👇 3. [FIX] TỰ ĐỘNG KHÔI PHỤC TRẠM CŨ (Nếu quên Rời trạm)
-                var currentUsername = authState.User.Identity?.Name;
-                if (!string.IsNullOrEmpty(currentUsername))
-                {
-                    // Tìm xem user này có đang đứng ở trạm nào không
-                    var existingStation = stations.FirstOrDefault(s => s.CurrentUser?.Username == currentUsername);
-                    if (existingStation != null)
-                    {
-                        occupiedStation = existingStation;
-                        await CheckStationStatus(occupiedStation.Name);
-                        
-                        statusMessage = $"Bạn đã được tự động kết nối lại vào trạm '{occupiedStation.Name}' do chưa thoát phiên làm việc trước đó.";
-                        statusType = "warning";
-                        StateHasChanged();
-                    }
-                }
-
-                StateHasChanged();
-            }
-            catch { }
+            return;
         }
 
-        // Tự động focus ô nhập liệu (Luôn chạy nếu isAutoFocusEnabled = true)
-        if (isAutoFocusEnabled && occupiedStation != null && !isSubmitting && !isCameraActive)
+        // ✅ 1) Load auth từ localStorage trước
+        if (AuthStateProvider is CustomAuthStateProvider c)
+            await c.LoadUserFromLocalStorage();
+
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (!(auth.User.Identity?.IsAuthenticated ?? false))
         {
+            authReady = true;
+            StateHasChanged();
+            Nav.NavigateTo("/login", true);
+            return;
+        }
+
+        authReady = true;
+
+        var savedMode = await JS.InvokeAsync<string>("localStorage.getItem", "scanMode");
+        if (!string.IsNullOrEmpty(savedMode) && int.TryParse(savedMode, out int m))
+            scanMode = (ScanMode)m;
+
+        await LoadStations();
+
+        // ✅ 2) Tự tìm trạm đã chiếm để F5 không đen
+        var user = auth.User.Identity?.Name;
+        if (!string.IsNullOrEmpty(user))
+        {
+            var s = stations.FirstOrDefault(x => x.CurrentUser?.Username == user);
+            if (s != null)
+            {
+                occupiedStation = s;
+                await CheckStationStatus(s.Name);
+            }
+        }
+
+        // ✅ 3) Auto start nếu đang Auto Cam
+        if (scanMode == ScanMode.CameraAuto && occupiedStation != null)
+        {
+            await Task.Delay(150);
+            await StartRtspScan();
+        }
+
+        if (scanMode == ScanMode.BarcodeGun && occupiedStation != null)
+        {
+            await Task.Delay(80);
+            try { await inputRef.FocusAsync(); } catch { }
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task StartRtspScan()
+    {
+        if (occupiedStation?.Camera == null) return;
+
+        string hlsUrl = $"{HlsBaseUrl}/{occupiedStation.Camera.Name}/index.m3u8";
+
+        objRef?.Dispose();
+        objRef = DotNetObjectReference.Create(this);
+
+        await JS.InvokeVoidAsync("startHlsScan", hlsUrl, videoElement, canvasElement, objRef);
+    }
+
+    private async Task StopScan()
+    {
+        try { await JS.InvokeVoidAsync("stopCamera"); } catch { }
+        objRef?.Dispose();
+        objRef = null;
+    }
+
+    private async Task SetScanMode(ScanMode mode)
+    {
+        await StopScan();
+        scanMode = mode;
+        await JS.InvokeVoidAsync("localStorage.setItem", "scanMode", (int)mode);
+        StateHasChanged();
+
+        if (mode == ScanMode.CameraAuto && occupiedStation != null)
+        {
+            await Task.Delay(120);
+            await StartRtspScan();
+        }
+        else
+        {
+            await Task.Delay(80);
             try { await inputRef.FocusAsync(); } catch { }
         }
     }
 
-    // 👇 [MỚI] Hàm Toggle Chế độ Bàn phím
-    private async Task ToggleKeyboardMode()
+    [JSInvokable]
+    public async Task ProcessScan(string code)
     {
-        if (virtualKeyboardMode == "text")
+        if (isProcessingScan) return;
+        isProcessingScan = true;
+
+        var raw = (code ?? "").Trim();
+        bool isRecording = !string.IsNullOrEmpty(currentRecordingQR);
+
+        // ✅ Auto Cam chỉ STOP khi thấy STOP RECORDING / @@STOP_RECORD@@
+        bool isStopCode = scanMode == ScanMode.CameraAuto
+            ? raw.Contains("STOP RECORDING", StringComparison.OrdinalIgnoreCase) ||
+              raw.Contains("@@STOP_RECORD@@", StringComparison.OrdinalIgnoreCase)
+            : raw.Contains("STOP", StringComparison.OrdinalIgnoreCase) ||
+              raw.Contains("@@STOP_RECORD@@", StringComparison.OrdinalIgnoreCase);
+
+        if (isRecording)
         {
-            // Chuyển sang TẮT bàn phím
-            virtualKeyboardMode = "none";
-            // Blur rồi Focus lại để trình duyệt nhận diện thay đổi inputmode
-            await JS.InvokeVoidAsync("eval", "document.activeElement.blur()");
-            await Task.Delay(50); 
-            await RefocusInput();
+            if (isStopCode)
+            {
+                await JS.InvokeVoidAsync("playBeep");
+                await SendScanRequest("STOP RECORDING", raw);
+                await Task.Delay(300);
+            }
         }
         else
         {
-            // Chuyển sang BẬT bàn phím (Nhập tay)
-            virtualKeyboardMode = "text";
-            await JS.InvokeVoidAsync("eval", "document.activeElement.blur()");
-            await Task.Delay(50);
+            if (!isStopCode && !string.IsNullOrWhiteSpace(raw))
+            {
+                await JS.InvokeVoidAsync("playBeep");
+                await SendScanRequest(raw, raw);
+                await Task.Delay(300);
+            }
+        }
+
+        isProcessingScan = false;
+    }
+
+    private void AddScanLog(string qr, string action, string message)
+    {
+        scanLogs.Insert(0, new ScanLogEntry
+        {
+            Time = DateTime.Now,
+            QrCode = qr,
+            Action = action,
+            Message = message
+        });
+
+        while (scanLogs.Count > MaxScanLogs)
+            scanLogs.RemoveAt(scanLogs.Count - 1);
+    }
+
+    private async Task SendScanRequest(string codeToSend, string rawQrForLog)
+    {
+        if (occupiedStation == null) return;
+
+        string action = "unknown";
+        string msg = "";
+
+        try
+        {
+            await AttachTokenToHttp();
+
+            var res = await Http.PostAsJsonAsync("api/record/scan", new
+            {
+                QrCode = codeToSend,
+                RtspUrl = occupiedStation.Camera?.RtspUrl,
+                StationName = occupiedStation.Name
+            });
+
+            if (res.IsSuccessStatusCode)
+            {
+                var j = await res.Content.ReadFromJsonAsync<JsonElement>();
+
+                if (j.TryGetProperty("action", out var actionProp))
+                    action = actionProp.GetString() ?? "unknown";
+
+                if (action == "start")
+                    currentRecordingQR = j.TryGetProperty("recording_qr", out var q) ? q.GetString() : rawQrForLog;
+                else
+                    currentRecordingQR = null;
+
+                msg = currentRecordingQR != null ? $"Đang quay đơn: {currentRecordingQR}" : "Đã dừng quay.";
+                statusMessage = msg;
+                statusType = "success";
+            }
+            else
+            {
+                msg = $"API lỗi: {(int)res.StatusCode}";
+                statusMessage = msg;
+                statusType = "error";
+            }
+        }
+        catch (Exception ex)
+        {
+            msg = "Lỗi gửi yêu cầu ghi hình: " + ex.Message;
+            statusMessage = msg;
+            statusType = "error";
+        }
+
+        AddScanLog(rawQrForLog, action, msg);
+        StateHasChanged();
+    }
+
+    private async Task HandleManualSubmit()
+    {
+        if (!string.IsNullOrWhiteSpace(manualCode))
+        {
+            await SendScanRequest(manualCode, manualCode);
+            manualCode = "";
             await RefocusInput();
         }
+    }
+
+    private async Task ToggleKeyboardMode()
+    {
+        virtualKeyboardMode = (virtualKeyboardMode == "text" ? "none" : "text");
+        await JS.InvokeVoidAsync("eval", "document.activeElement.blur()");
+        await Task.Delay(50);
+        await RefocusInput();
     }
 
     private async Task RefocusInput()
     {
-        // 👇 Luôn Focus lại nếu AutoFocus bật (mặc định là bật)
-        if (isAutoFocusEnabled && occupiedStation != null && !isSubmitting)
+        if (scanMode == ScanMode.BarcodeGun)
         {
-            await Task.Delay(100);
+            await Task.Delay(80);
             try { await inputRef.FocusAsync(); } catch { }
         }
-    }
-
-    private async Task Logout()
-    {
-        try 
-        {
-            // Tự động rời trạm khi đăng xuất để tránh treo trạm
-            if(occupiedStation != null) await ReleaseStation();
-        } 
-        catch {}
-        await JS.InvokeVoidAsync("localStorage.removeItem", "token");
-        Nav.NavigateTo("/login", true);
     }
 
     private async Task LoadStations()
@@ -397,11 +510,7 @@
             await AttachTokenToHttp();
             stations = await Http.GetFromJsonAsync<List<Station>>("api/station") ?? new();
         }
-        catch (Exception ex)
-        {
-            statusMessage = "Lỗi tải trạm: " + ex.Message;
-            statusType = "error";
-        }
+        catch { }
         finally
         {
             loading = false;
@@ -409,68 +518,40 @@
         }
     }
 
-    private async Task OccupyStation(Station station)
+    private async Task OccupyStation(Station s)
     {
-        // 👇 [CẬP NHẬT] Kiểm tra nếu trạm đã có người thì báo lỗi thay vì im lặng
-        if (station.CurrentUserId != null)
-        {
-            statusMessage = $"🚫 Máy {station.Name} hiện đang có người sử dụng ({station.CurrentUser?.Username ?? "..."}). Vui lòng chọn máy khác.";
-            statusType = "error";
-            return;
-        }
-        
-        statusMessage = "";
-        
+        if (s.CurrentUserId != null) return;
+
         try
         {
             await AttachTokenToHttp();
-            var res = await Http.PostAsJsonAsync("api/station/occupy", new { StationId = station.Id });
-            
-            var content = await res.Content.ReadAsStringAsync();
+            var r = await Http.PostAsJsonAsync("api/station/occupy", new { StationId = s.Id });
 
-            if (res.IsSuccessStatusCode)
+            if (r.IsSuccessStatusCode)
             {
-                occupiedStation = station;
-                statusMessage = "";
-                await CheckStationStatus(station.Name);
-            }
-            else 
-            {
-                try 
+                occupiedStation = s;
+                await CheckStationStatus(s.Name);
+
+                if (scanMode == ScanMode.CameraAuto)
                 {
-                    using var doc = JsonDocument.Parse(content);
-                    if (doc.RootElement.TryGetProperty("message", out var msgEl))
-                    {
-                        statusMessage = "Lỗi: " + msgEl.GetString();
-                    }
-                    else 
-                    {
-                        statusMessage = "Lỗi server: " + content;
-                    }
+                    await Task.Delay(120);
+                    await StartRtspScan();
                 }
-                catch 
-                {
-                    statusMessage = "Không thể vào trạm (Lỗi " + (int)res.StatusCode + "): " + content;
-                }
-                statusType = "error";
+
+                StateHasChanged();
             }
         }
-        catch (Exception ex)
-        {
-            statusMessage = "Lỗi kết nối: " + ex.Message;
-            statusType = "error";
-        }
+        catch { }
     }
 
-    private async Task CheckStationStatus(string stationName)
+    private async Task CheckStationStatus(string n)
     {
         try
         {
-            var status = await Http.GetFromJsonAsync<Dictionary<string, string>>("api/record/recording-status");
-            if (status != null && status.ContainsKey(stationName))
-                currentRecordingQR = status[stationName];
-            else
-                currentRecordingQR = null;
+            await AttachTokenToHttp();
+            var s = await Http.GetFromJsonAsync<Dictionary<string, string>>("api/record/recording-status");
+            if (s != null && s.ContainsKey(n)) currentRecordingQR = s[n];
+            else currentRecordingQR = null;
         }
         catch { }
     }
@@ -478,107 +559,60 @@
     private async Task ReleaseStation()
     {
         if (occupiedStation == null) return;
-        await StopCamera();
+
+        await StopScan();
+
         try
         {
             await AttachTokenToHttp();
             await Http.PostAsJsonAsync("api/station/release", new { StationId = occupiedStation.Id });
+
             occupiedStation = null;
             currentRecordingQR = null;
-            manualCode = "";
-            statusMessage = "";
+
             await LoadStations();
         }
         catch { }
     }
 
-    // START CAMERA
-    private async Task StartCamera() {
-        if (!isJsqrLoaded) return;
-        isCameraActive = true; qrFound = false; await InvokeAsync(StateHasChanged);
-        objRef = DotNetObjectReference.Create(this); await Task.Delay(100);
-        var success = await JS.InvokeAsync<bool>("startCamera", videoElement, canvasElement, objRef);
-        if (!success) { isCameraActive = false; statusMessage = "Không thể mở camera."; statusType = "error"; }
-    }
-
-    // STOP CAMERA
-    private async Task StopCamera() {
-        if (isCameraActive) { isCameraActive = false; isFlashOn = false; await JS.InvokeVoidAsync("stopCamera"); objRef?.Dispose(); }
-    }
-
-    private async Task ToggleFlash() { isFlashOn = !isFlashOn; await JS.InvokeVoidAsync("toggleFlash", isFlashOn); }
-
-    [JSInvokable]
-    public async Task ProcessScan(string code) {
-        qrFound = true; await JS.InvokeVoidAsync("playBeep"); StateHasChanged();
-        await Task.Delay(500); await StopCamera(); await SendScanRequest(code);
-    }
-
-    private async Task HandleManualSubmit() { if (!string.IsNullOrWhiteSpace(manualCode)) { await SendScanRequest(manualCode); manualCode = ""; } }
-
-    private async Task SendScanRequest(string code) {
-        if (occupiedStation == null) return;
-        isSubmitting = true;
-        try {
-            await AttachTokenToHttp();
-            var payload = new { QrCode = code, RtspUrl = occupiedStation.Camera?.RtspUrl ?? "", StationName = occupiedStation.Name };
-            var response = await Http.PostAsJsonAsync("api/record/scan", payload);
-            var content = await response.Content.ReadAsStringAsync();
-            if (!response.IsSuccessStatusCode) { statusMessage = $"Lỗi Server: {content}"; statusType = "error"; }
-            else {
-                using var doc = JsonDocument.Parse(content);
-                var root = doc.RootElement;
-                string action = ""; if(root.TryGetProperty("action", out var ae)) action = ae.GetString() ?? "";
-                string msg = ""; if(root.TryGetProperty("message", out var me)) msg = me.GetString() ?? "";
-                statusMessage = msg;
-                if (action == "start") {
-                    if(root.TryGetProperty("recording_qr", out var qe)) currentRecordingQR = qe.GetString(); else currentRecordingQR = code;
-                    statusType = "success";
-                } else { currentRecordingQR = null; statusType = "info"; }
-            }
-        } catch (Exception ex) { statusMessage = $"Lỗi Client: {ex.Message}"; statusType = "error"; }
-        isSubmitting = false; qrFound = false; StateHasChanged(); await RefocusInput();
-    }
-
-    private async Task AttachTokenToHttp() {
-        // [FIX] Cập nhật Token vào biến cache mỗi khi gọi hàm này
-        var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
-        if (!string.IsNullOrEmpty(token)) 
+    private async Task Logout()
+    {
+        try
         {
-            _cachedToken = token; // Lưu lại để dùng cho DisposeAsync
-            Http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            if (occupiedStation != null) await ReleaseStation();
+        }
+        catch { }
+
+        if (AuthStateProvider is CustomAuthStateProvider c)
+            await c.MarkUserAsLoggedOut();
+
+        Nav.NavigateTo("/login", true);
+    }
+
+    private async Task AttachTokenToHttp()
+    {
+        var t = await JS.InvokeAsync<string>("auth.get");
+        if (!string.IsNullOrEmpty(t))
+        {
+            _cachedToken = t;
+            Http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", t);
         }
     }
 
-    // 👇 THAY ĐỔI LỚN: Xử lý dọn dẹp khi Component bị hủy (Dispose)
-    // Khi người dùng chuyển trang khác (navigating away), DisposeAsync sẽ được gọi.
-    public async ValueTask DisposeAsync() 
+    private void ClearScanLogs() => scanLogs.Clear();
+
+    public async ValueTask DisposeAsync()
     {
-        // 1. Tắt Camera và hủy object reference
-        // [QUAN TRỌNG] Phải dùng try-catch vì nếu Browser đã tắt, lệnh JS sẽ gây lỗi.
-        try {
-            if (isCameraActive) await JS.InvokeVoidAsync("stopCamera");
-            objRef?.Dispose();
-        } catch { /* Bỏ qua lỗi JS nếu browser đã đóng */ }
-        
-        // 2. Tự động gọi API Release nếu đang giữ trạm
-        if (occupiedStation != null)
+        await StopScan();
+
+        if (occupiedStation != null && !string.IsNullOrEmpty(_cachedToken))
         {
-            try 
+            try
             {
-                // [QUAN TRỌNG] Sử dụng _cachedToken đã lưu, KHÔNG GỌI AttachTokenToHttp() (vì nó gọi JS)
-                if (!string.IsNullOrEmpty(_cachedToken))
-                {
-                    Http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _cachedToken);
-                    
-                    // Gọi API release "fire-and-forget"
-                    await Http.PostAsJsonAsync("api/station/release", new { StationId = occupiedStation.Id });
-                }
+                Http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _cachedToken);
+                await Http.PostAsJsonAsync("api/station/release", new { StationId = occupiedStation.Id });
             }
-            catch 
-            { 
-                // Có thể xảy ra lỗi nếu circuit đã ngắt hoàn toàn
-            }
+            catch { }
         }
     }
 }
