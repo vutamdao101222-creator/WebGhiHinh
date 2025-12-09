@@ -1,3 +1,406 @@
-﻿body {
+﻿/* ------------------------------------------------------------------------- */
+/* 1. GLOBAL STYLES */
+/* ------------------------------------------------------------------------- */
+body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f3f4f6; /* Nền xám nhẹ cho toàn trang */
+    margin: 0;
+    padding: 0;
+    color: #1f2937; /* Màu chữ chính (xám đậm) */
 }
+
+/* Scrollbar đẹp hơn (tùy chọn) */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
+    }
+
+/* ------------------------------------------------------------------------- */
+/* 2. SCANNING PAGE LAYOUT (Giao diện Quét QR) */
+/* ------------------------------------------------------------------------- */
+
+/* Container chính căn giữa */
+.scan-container {
+    padding: 1rem;
+    max-width: 900px;
+    margin: 1rem auto;
+    animation: fadeIn 0.5s ease-out forwards;
+}
+
+@media (min-width: 640px) {
+    .scan-container {
+        padding: 2rem;
+        margin: 2rem auto;
+    }
+}
+
+/* Thẻ Card chứa nội dung */
+.scan-card {
+    background-color: #ffffff;
+    padding: 1.5rem;
+    border-radius: 16px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.07);
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid #f3f4f6;
+}
+
+@media (min-width: 640px) {
+    .scan-card {
+        padding: 2.5rem 3rem;
+    }
+}
+
+.scan-header {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #1f2937;
+    margin-bottom: 2rem;
+}
+
+/* ------------------------------------------------------------------------- */
+/* 3. STATION SELECTION GRID (Lưới chọn trạm) */
+/* ------------------------------------------------------------------------- */
+.station-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1.5rem;
+}
+
+.station-box {
+    padding: 1.5rem 1rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: #f9fafb;
+    user-select: none;
+}
+
+    .station-box:hover:not(.disabled) {
+        border-color: #3b82f6;
+        transform: translateY(-4px);
+        background: #fff;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    }
+
+    .station-box.disabled {
+        background-color: #f3f4f6;
+        color: #9ca3af;
+        cursor: not-allowed;
+        opacity: 0.7;
+    }
+
+.station-box-name {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #1f2937;
+    display: block;
+}
+
+.station-box-user {
+    font-size: 0.85rem;
+    color: #ef4444; /* Đỏ */
+    margin-top: 0.5rem;
+    font-weight: 600;
+    display: block;
+}
+
+.station-box-free {
+    font-size: 0.85rem;
+    color: #10b981; /* Xanh lá */
+    margin-top: 0.5rem;
+    font-weight: 600;
+    display: block;
+}
+
+/* ------------------------------------------------------------------------- */
+/* 4. VIDEO PLAYER & OVERLAY (Phần quan trọng nhất) */
+/* ------------------------------------------------------------------------- */
+
+.live-feed-card {
+    margin-top: 2rem;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 2px solid #3b82f6; /* Viền xanh dương chủ đạo */
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); /* Bóng sáng xanh */
+    margin-bottom: 2rem;
+}
+
+/* Wrapper chứa Video + Canvas + Overlay để giữ tỷ lệ và vị trí */
+.video-wrapper {
+    position: relative;
+    width: 100%;
+    background-color: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    aspect-ratio: 16/9; /* Tỷ lệ khung hình chuẩn 16:9 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Lớp 1: Video gốc (Nằm dưới cùng) */
+.video-layer {
+    width: 100%;
+    height: 100%;
+    object-fit: contain; /* Giữ tỷ lệ gốc của video, thêm viền đen nếu cần, KHÔNG BỊ MÉO */
+    display: block;
+}
+
+/* Lớp 2: Canvas vẽ khung nhận diện (Nằm đè lên video) */
+.overlay-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none; /* Cho phép click xuyên qua */
+    z-index: 10;
+}
+
+/* Lớp 3: Hiệu ứng giao diện (Khung ngắm & Đường quét) */
+.qr-camera-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 5;
+    /* Hiệu ứng tối 4 góc (Vignette) giúp tập trung vào giữa */
+    background: radial-gradient(circle at center, transparent 55%, rgba(0,0,0,0.5) 100%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+/* Đường quét laser màu đỏ (Chỉ hiện khi Auto) */
+.qr-scan-line {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    top: 0;
+    background: linear-gradient(to right, transparent, #ef4444, transparent);
+    box-shadow: 0 0 10px #ef4444, 0 0 20px #ef4444;
+    animation: zaloScan 2.5s infinite linear; /* Chạy dọc từ trên xuống */
+}
+
+/* Khung ngắm 4 góc (Corner Brackets) */
+.qr-corner {
+    position: absolute;
+    width: 30px;
+    height: 30px;
+    border-color: rgba(255, 255, 255, 0.7);
+    border-style: solid;
+    z-index: 6;
+}
+
+.qr-corner-tl {
+    top: 20px;
+    left: 20px;
+    border-width: 4px 0 0 4px;
+    border-top-left-radius: 8px;
+}
+
+.qr-corner-tr {
+    top: 20px;
+    right: 20px;
+    border-width: 4px 4px 0 0;
+    border-top-right-radius: 8px;
+}
+
+.qr-corner-bl {
+    bottom: 20px;
+    left: 20px;
+    border-width: 0 0 4px 4px;
+    border-bottom-left-radius: 8px;
+}
+
+.qr-corner-br {
+    bottom: 20px;
+    right: 20px;
+    border-width: 0 4px 4px 0;
+    border-bottom-right-radius: 8px;
+}
+
+/* Nút Reload/Play thủ công */
+.reload-overlay {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    z-index: 20;
+    pointer-events: auto;
+}
+
+/* Ẩn nút Play khi video đang chạy (áp dụng CSS Selector thông minh) */
+video:not([paused]):not([ended]) + canvas + .qr-camera-overlay + .reload-overlay {
+    display: none;
+}
+
+/* ------------------------------------------------------------------------- */
+/* 5. ANIMATIONS & KEYFRAMES */
+/* ------------------------------------------------------------------------- */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Hiệu ứng đường quét chạy dọc */
+@keyframes zaloScan {
+    0% {
+        top: 5%;
+        opacity: 0;
+    }
+
+    10% {
+        opacity: 1;
+    }
+
+    90% {
+        opacity: 1;
+    }
+
+    100% {
+        top: 95%;
+        opacity: 0;
+    }
+}
+
+/* Hiệu ứng nhấp nháy cho text/icon */
+.animate-pulse {
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}
+
+/* Hiệu ứng nhấp nháy đỏ (cho icon REC) */
+@keyframes blinkRed {
+    0% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.4;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}
+
+/* ------------------------------------------------------------------------- */
+/* 6. UTILITIES (Alerts, Badges, etc.) */
+/* ------------------------------------------------------------------------- */
+
+.alert {
+    padding: 1rem;
+    border-radius: 8px;
+    font-weight: 500;
+    margin-bottom: 1rem;
+    text-align: center;
+}
+
+.alert-success {
+    background: #d1fae5;
+    color: #065f46;
+    border: 1px solid #a7f3d0;
+}
+
+.alert-danger {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+.alert-info {
+    background: #e0f2fe;
+    color: #075985;
+    border: 1px solid #bae6fd;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.35em 0.65em;
+    font-size: 0.75em;
+    font-weight: 700;
+    line-height: 1;
+    color: #fff;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 0.25rem;
+}
+
+.bg-danger {
+    background-color: #dc3545 !important;
+}
+
+.spinner {
+    width: 30px;
+    height: 30px;
+    border: 4px solid rgba(59,130,246,0.2);
+    border-left-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 1rem auto;
+}
+
+/* Input Manual (Chế độ bắn súng) */
+.scan-input {
+    width: 100%;
+    padding: 1rem;
+    font-size: 1.5rem;
+    text-align: center;
+    border: 2px solid #e5e7eb;
+    border-radius: 10px;
+    outline: none;
+    font-weight: 600;
+    color: #111827;
+    transition: border-color 0.2s;
+}
+
+    .scan-input:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }

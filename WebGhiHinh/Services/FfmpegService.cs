@@ -1,107 +1,145 @@
-﻿using System.Diagnostics;
+﻿// ==========================================
+// FILE: Services/FfmpegService.cs
+// Lưu theo StationName vào C:\GhiHinhVideos
+// Format file: username_qr_yyyyMMdd_HHmmss.mp4
+// Trả về path dạng /videos/{station}/{file}.mp4
+// ==========================================
+
+using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.IO;
+using Microsoft.Extensions.Logging;
 
 namespace WebGhiHinh.Services
 {
     public class FfmpegService
     {
-        private static readonly ConcurrentDictionary<string, Process> Active = new();
-        private readonly string Root = @"C:\GhiHinhVideos";
-
-        public FfmpegService()
+        private sealed class StationProcess
         {
-            if (!Directory.Exists(Root)) Directory.CreateDirectory(Root);
+            public Process Process { get; init; } = default!;
+            public string FileFullPath { get; init; } = "";
         }
 
-        public string StartRecording(string rtsp, string qr, string station, string user)
+        private readonly ConcurrentDictionary<string, StationProcess> _stationProcesses = new();
+        private readonly ILogger<FfmpegService> _logger;
+
+        // ✅ Root bạn muốn
+        private const string RecordingRoot = @"C:\GhiHinhVideos";
+        private readonly string _ffmpegExe = "ffmpeg";
+
+        public FfmpegService(ILogger<FfmpegService> logger)
         {
-            string key = station.ToLower();
+            _logger = logger;
+            Directory.CreateDirectory(RecordingRoot);
+        }
 
-            if (IsStop(qr))
-            {
-                StopRecording(station);
-                return "STOPPED";
-            }
+        public string StartRecording(string rtspUrl, string qrCode, string stationName, string username)
+        {
+            if (string.IsNullOrWhiteSpace(rtspUrl)) throw new ArgumentException("rtspUrl is required");
+            if (string.IsNullOrWhiteSpace(qrCode)) throw new ArgumentException("qrCode is required");
+            if (string.IsNullOrWhiteSpace(stationName)) throw new ArgumentException("stationName is required");
+            if (string.IsNullOrWhiteSpace(username)) username = "UnknownUser";
 
-            if (Active.ContainsKey(key)) StopRecording(station);
+            StopRecording(stationName);
 
-            string dir = Path.Combine(Root, station);
-            Directory.CreateDirectory(dir);
+            var safeQr = MakeSafe(qrCode);
+            var safeUser = MakeSafe(username);
+            var ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
-            string safeQr = qr.Replace("/", "_").Replace("\\", "_");
-            string safeUser = user.Replace(" ", "_");
-            string ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            string file = $"{safeUser}_{safeQr}_{ts}.mp4";
-            string output = Path.Combine(dir, file);
+            var folder = Path.Combine(RecordingRoot, stationName);
+            Directory.CreateDirectory(folder);
 
-            string ff = FindFfmpeg();
-            if (ff == null) throw new FileNotFoundException("Không tìm thấy ffmpeg.exe");
+            // ✅ format giống bạn: gigahoang_XKHL..._20251204_100822
+            var fileName = $"{safeUser}_{safeQr}_{ts}.mp4";
+            var fullPath = Path.Combine(folder, fileName);
 
-            string overlay = "drawtext=text='%{localtime\\:%Y-%m-%d %H\\\\\\:%M\\\\\\:%S}':"
-                           + "fontcolor=white:fontsize=36:box=1:boxcolor=black@0.5:x=w-tw-20:y=20";
-
-            string args =
-                $"-rtsp_transport tcp -i \"{rtsp}\" " +
-                $"-vf \"{overlay}\" -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -an " +
-                $"\"{output}\"";
+            var args =
+                "-hide_banner -loglevel error " +
+                "-fflags +nobuffer -flags low_delay " +
+                $"-rtsp_transport tcp -i \"{rtspUrl}\" " +
+                "-an -c:v copy -movflags +faststart " +
+                $"\"{fullPath}\"";
 
             var psi = new ProcessStartInfo
             {
-                FileName = ff,
+                FileName = _ffmpegExe,
                 Arguments = args,
-                RedirectStandardInput = true,
-                RedirectStandardError = true,
                 UseShellExecute = false,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                RedirectStandardInput = true,
                 CreateNoWindow = true
             };
 
-            var proc = new Process { StartInfo = psi };
-            proc.Start();
+            var p = new Process { StartInfo = psi, EnableRaisingEvents = true };
 
-            Active[key] = proc;
-            return output;
+            p.ErrorDataReceived += (_, e) =>
+            {
+                if (!string.IsNullOrWhiteSpace(e.Data))
+                    _logger.LogWarning("[FFmpeg:{Station}] {Msg}", stationName, e.Data);
+            };
+
+            if (!p.Start())
+                throw new InvalidOperationException("Không thể khởi động FFmpeg");
+
+            try { p.BeginErrorReadLine(); p.BeginOutputReadLine(); } catch { }
+
+            _stationProcesses[stationName] = new StationProcess
+            {
+                Process = p,
+                FileFullPath = fullPath
+            };
+
+            // ✅ relative path khớp static files /videos
+            // Program.cs:
+            // var videoPath = @"C:\GhiHinhVideos";
+            // app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(videoPath), RequestPath = "/videos" })
+            var relative = Path.Combine("videos", stationName, fileName).Replace("\\", "/");
+            return "/" + relative;
         }
 
-        public bool StopRecording(string station)
+        public void StopRecording(string stationName)
         {
-            string key = station.ToLower();
-            if (!Active.TryRemove(key, out var proc)) return false;
+            if (string.IsNullOrWhiteSpace(stationName)) return;
 
-            try
+            if (_stationProcesses.TryRemove(stationName, out var handle))
             {
-                if (!proc.HasExited)
+                var p = handle.Process;
+
+                try
                 {
+                    if (p.HasExited) return;
+
+                    // ✅ graceful để MP4 finalize
                     try
                     {
-                        using var sw = proc.StandardInput;
-                        sw.WriteLine("q");
+                        p.StandardInput.WriteLine("q");
+                        p.StandardInput.Flush();
                     }
                     catch { }
 
-                    if (!proc.WaitForExit(1500))
-                        proc.Kill();
+                    if (!p.WaitForExit(1500))
+                    {
+                        try { p.Kill(true); p.WaitForExit(2000); } catch { }
+                    }
                 }
-                return true;
-            }
-            catch
-            {
-                try { proc.Kill(); } catch { }
-                return false;
+                catch { }
+                finally
+                {
+                    try { p.Dispose(); } catch { }
+                }
             }
         }
 
-        private bool IsStop(string c) =>
-            c.Equals("STOP", StringComparison.OrdinalIgnoreCase) ||
-            c.Equals("STOP RECORDING", StringComparison.OrdinalIgnoreCase) ||
-            c.Equals("@@STOP_RECORD@@", StringComparison.OrdinalIgnoreCase);
-
-        private string? FindFfmpeg()
+        private static string MakeSafe(string input)
         {
-            string p1 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ffmpeg.exe");
-            string p2 = Path.Combine(Directory.GetCurrentDirectory(), "ffmpeg.exe");
-            if (File.Exists(p1)) return p1;
-            if (File.Exists(p2)) return p2;
-            return null;
+            if (string.IsNullOrEmpty(input)) return "NA";
+            foreach (var c in Path.GetInvalidFileNameChars())
+                input = input.Replace(c, '_');
+
+            input = input.Replace("/", "_").Replace("\\", "_").Replace("..", "_");
+            return input.Trim();
         }
     }
 }

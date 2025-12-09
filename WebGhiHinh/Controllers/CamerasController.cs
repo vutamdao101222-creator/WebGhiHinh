@@ -5,7 +5,7 @@ using WebGhiHinh.Models;
 
 namespace WebGhiHinh.Controllers
 {
-    [Route("api/[controller]")] // api/cameras
+    [Route("api/[controller]")] // => api/cameras
     [ApiController]
     public class CamerasController : ControllerBase
     {
@@ -16,33 +16,58 @@ namespace WebGhiHinh.Controllers
             _context = context;
         }
 
-        // 1. Lấy danh sách
+        // ===============================
+        // 1) Lấy danh sách camera
+        // GET: api/cameras
+        // ===============================
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Camera>>> GetCameras()
         {
-            return await _context.Cameras.ToListAsync();
+            return await _context.Cameras
+                .OrderBy(c => c.Name)
+                .ToListAsync();
         }
 
-        // 2. Thêm mới
-        [HttpPost]
-        public async Task<ActionResult<Camera>> PostCamera(Camera camera)
+        // ===============================
+        // 1.1) Lấy 1 camera theo id (nên có để CreatedAtAction đúng)
+        // GET: api/cameras/5
+        // ===============================
+        [HttpGet("{id}")]
+        public async Task<ActionResult<Camera>> GetCamera(int id)
         {
+            var camera = await _context.Cameras.FindAsync(id);
+            if (camera == null) return NotFound();
+
+            return camera;
+        }
+
+        // ===============================
+        // 2) Thêm mới camera
+        // POST: api/cameras
+        // ===============================
+        [HttpPost]
+        public async Task<ActionResult<Camera>> PostCamera([FromBody] Camera camera)
+        {
+            if (camera == null) return BadRequest("Camera không hợp lệ.");
+
             _context.Cameras.Add(camera);
             await _context.SaveChangesAsync();
 
-            return CreatedAtAction("GetCameras", new { id = camera.Id }, camera);
+            return CreatedAtAction(nameof(GetCamera), new { id = camera.Id }, camera);
         }
 
-        // 👇 3. CẬP NHẬT CAMERA (THÊM MỚI PHẦN NÀY ĐỂ SỬA LỖI 404)
+        // ===============================
+        // 3) Cập nhật camera (fix 404)
         // PUT: api/cameras/5
+        // ===============================
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutCamera(int id, Camera camera)
+        public async Task<IActionResult> PutCamera(int id, [FromBody] Camera camera)
         {
-            if (id != camera.Id)
-            {
-                return BadRequest("ID không khớp.");
-            }
+            if (camera == null) return BadRequest("Camera không hợp lệ.");
+            if (id != camera.Id) return BadRequest("ID không khớp.");
 
+            // Nếu muốn update an toàn hơn, có thể load entity rồi map
+            // Ở đây giữ kiểu update nhanh:
             _context.Entry(camera).State = EntityState.Modified;
 
             try
@@ -52,19 +77,18 @@ namespace WebGhiHinh.Controllers
             catch (DbUpdateConcurrencyException)
             {
                 if (!CameraExists(id))
-                {
                     return NotFound($"Không tìm thấy Camera có ID = {id}");
-                }
-                else
-                {
-                    throw;
-                }
+
+                throw;
             }
 
-            return NoContent(); // Trả về 204 No Content khi thành công
+            return NoContent();
         }
 
-        // 4. Xóa
+        // ===============================
+        // 4) Xóa camera
+        // DELETE: api/cameras/5
+        // ===============================
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteCamera(int id)
         {

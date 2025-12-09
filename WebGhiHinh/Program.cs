@@ -6,7 +6,6 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using System.Text;
 using WebGhiHinh.Components;
 using WebGhiHinh.Data;
@@ -17,11 +16,10 @@ var builder = WebApplication.CreateBuilder(args);
 // ==========================================
 // 1. ĐĂNG KÝ SERVICES
 // ==========================================
-
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// Cấu hình Swagger có nút Authorize
+// Swagger có nút Authorize
 builder.Services.AddSwaggerGen(options =>
 {
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -54,41 +52,33 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// FFMPEG
 builder.Services.AddSingleton<FfmpegService>();
 
-// HttpClient
-builder.Services.AddScoped(sp => new HttpClient
+// ✅ FIX QUAN TRỌNG: HttpClient base động theo host đang chạy web
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped(sp =>
 {
-    BaseAddress = new Uri("http://192.168.1.48")
+    var accessor = sp.GetRequiredService<IHttpContextAccessor>();
+    var req = accessor.HttpContext?.Request;
+
+    // fallback an toàn nếu chưa có HttpContext (hiếm)
+    var baseUrl = req != null
+        ? $"{req.Scheme}://{req.Host}"
+        : "http://192.168.1.148";
+
+    return new HttpClient
+    {
+        BaseAddress = new Uri(baseUrl)
+    };
 });
 
-//builder.Services.AddHttpContextAccessor();
-//builder.Services.AddScoped(sp =>
-//{
-//    var accessor = sp.GetRequiredService<IHttpContextAccessor>();
-//    var request = accessor.HttpContext?.Request;
-
-//    string baseUrl = "http://localhost";
-
-//    if (request != null)
-//    {
-//        baseUrl = $"{request.Scheme}://{request.Host}";
-//    }
-
-//    return new HttpClient
-//    {
-//        BaseAddress = new Uri(baseUrl)
-//    };
-//});
-
-
-
+// Auth State + Storage
 builder.Services.AddScoped<ProtectedSessionStorage>();
 builder.Services.AddScoped<AuthenticationStateProvider, CustomAuthStateProvider>();
 builder.Services.AddCascadingAuthenticationState();
 
 // Authentication JWT
-// Dòng này vẫn giữ để xóa mapping mặc định cũ
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 
 var key = builder.Configuration["Jwt:Key"];
@@ -98,8 +88,6 @@ var audience = builder.Configuration["Jwt:Audience"];
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        // 👇 QUAN TRỌNG: Tắt hoàn toàn việc tự đổi tên Claim của .NET
-        // Giúp server đọc đúng "role" thay vì "http://schemas..."
         options.MapInboundClaims = false;
 
         options.TokenValidationParameters = new TokenValidationParameters
@@ -112,7 +100,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
 
-            // Khớp với token đã tạo
             RoleClaimType = "role",
             NameClaimType = "name"
         };
@@ -131,18 +118,15 @@ var app = builder.Build();
 // ==========================================
 // 2. MIDDLEWARE
 // ==========================================
-
-// 👇 ĐÃ SỬA: Cho phép Swagger chạy ở mọi môi trường (kể cả khi Publish)
-// if (app.Environment.IsDevelopment()) // <--- Bỏ check này
-// {
 app.UseSwagger();
 app.UseSwaggerUI();
-// }
 
 app.UseHttpsRedirection();
 
 // Static Files
 app.UseStaticFiles();
+
+// ✅ Video folder như bạn dùng
 var videoPath = @"C:\GhiHinhVideos";
 if (!Directory.Exists(videoPath)) Directory.CreateDirectory(videoPath);
 app.UseStaticFiles(new StaticFileOptions

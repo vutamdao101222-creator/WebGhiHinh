@@ -1,9 +1,16 @@
 ﻿// ===============================
-// Stable HLS + jsQR Scanner
+// Stable HLS + jsQR Scanner (PATCH for your Blazor)
+// - Supports enableScan (BarcodeGun vs AutoCam)
+// - Adds stopHlsScan API
+// - Keeps overlay canvas transparent (clear after capture)
+// - Avoids resizing canvas every frame
 // ===============================
+
 let hls = null;
 let rafId = null;
 let scanning = false;
+let scanningEnabled = true;
+
 let lastCode = "";
 let lastHitAt = 0;
 
@@ -33,6 +40,8 @@ function hardStop(video) {
             video.load();
         }
     } catch { }
+
+    resetState();
 }
 
 function attachHls(url, video) {
@@ -50,7 +59,11 @@ function attachHls(url, video) {
 
     hls = new Hls({
         lowLatencyMode: true,
-        backBufferLength: 30,
+        enableWorker: true,
+        backBufferLength: 10,
+        maxBufferLength: 6,
+        liveSyncDuration: 1,
+        liveMaxLatencyDuration: 2,
         maxLiveSyncPlaybackRate: 1.0
     });
 
@@ -62,10 +75,7 @@ function attachHls(url, video) {
     });
 
     hls.on(Hls.Events.ERROR, (event, data) => {
-        // Auto recovery
         if (!data || !data.fatal) return;
-
-        console.warn("HLS fatal error:", data.type);
 
         switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
@@ -85,6 +95,11 @@ function attachHls(url, video) {
     });
 }
 
+function ensureCanvasSize(canvas, w, h) {
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+}
+
 function scanLoop(video, canvas, dotnetRef) {
     if (!scanning) return;
 
@@ -96,15 +111,28 @@ function scanLoop(video, canvas, dotnetRef) {
         return;
     }
 
-    // Set canvas real size
-    canvas.width = w;
-    canvas.height = h;
-
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(video, 0, 0, w, h);
+    ensureCanvasSize(canvas, w, h);
 
+    // Nếu tắt scan (BarcodeGun) -> clear overlay & reset dedupe
+    if (!scanningEnabled) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        resetState();
+        rafId = requestAnimationFrame(() => scanLoop(video, canvas, dotnetRef));
+        return;
+    }
+
+    // Draw frame only for decoding
+    ctx.drawImage(video, 0, 0, w, h);
     const img = ctx.getImageData(0, 0, w, h);
-    const code = jsQR(img.data, w, h, { inversionAttempts: "attemptBoth" });
+
+    // Clear immediately to keep overlay transparent
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    let code = null;
+    try {
+        code = jsQR(img.data, w, h, { inversionAttempts: "attemptBoth" });
+    } catch { }
 
     if (code && code.data) {
         const value = (code.data || "").trim();
@@ -119,7 +147,7 @@ function scanLoop(video, canvas, dotnetRef) {
             lastHitAt = t;
 
             try {
-                dotnetRef.invokeMethodAsync("ProcessScan", value);
+                dotnetRef?.invokeMethodAsync("ProcessScan", value);
             } catch (e) {
                 console.error("Invoke ProcessScan failed:", e);
             }
@@ -131,19 +159,23 @@ function scanLoop(video, canvas, dotnetRef) {
 
 // ===============================
 // Public API used by Blazor
+// Signature compatible with:
+// startHlsScan(hlsUrl, videoEl, canvasEl, dotnetRef, enableScan)
 // ===============================
-window.startHlsScan = (hlsUrl, videoElement, canvasElement, dotnetRef) => {
+window.startHlsScan = (hlsUrl, videoElement, canvasElement, dotnetRef, enableScan) => {
     try {
         if (!videoElement || !canvasElement) return;
 
+        // update scan flag
+        scanningEnabled = !!enableScan;
+
         // stop old instance cleanly
         hardStop(videoElement);
-        resetState();
 
         // attach new
         attachHls(hlsUrl, videoElement);
 
-        // start scanning
+        // start loop
         scanning = true;
         rafId = requestAnimationFrame(() => scanLoop(videoElement, canvasElement, dotnetRef));
     } catch (e) {
@@ -151,7 +183,8 @@ window.startHlsScan = (hlsUrl, videoElement, canvasElement, dotnetRef) => {
     }
 };
 
-window.stopCamera = () => {
+// Your Blazor uses this name
+window.stopHlsScan = () => {
     try {
         const videos = document.getElementsByTagName("video");
         const video = videos && videos.length ? videos[0] : null;
@@ -159,7 +192,10 @@ window.stopCamera = () => {
     } catch { }
 };
 
-// Optional beep (nếu bạn cần)
+// Backward alias if you still call it somewhere
+window.stopCamera = window.stopHlsScan;
+
+// Optional beep
 window.playBeep = () => {
     try {
         const audio = new Audio("/beep.mp3");
