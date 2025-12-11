@@ -1,11 +1,12 @@
-﻿@page "/live"
+﻿@* FILE: Components/Pages/LiveCameraPage.razor *@
+@page "/live"
+
 @using WebGhiHinh.Models
 @using Microsoft.AspNetCore.Components.Authorization
-@using System.Text.Json
 @using System.Net.Http.Headers
+@using Microsoft.JSInterop
 @inject HttpClient Http
 @inject IJSRuntime JS
-@using WebGhiHinh.Services
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
 
@@ -25,13 +26,16 @@
                 </span>
             </div>
         </div>
-        
+
         <div class="header-right">
-            <button class="btn btn-sm rounded-pill px-3 me-3 @(isAutoScanMode ? "btn-outline-danger" : "btn-primary")" 
+            <button class="btn btn-sm rounded-pill px-3 me-3 @(isAutoScanMode ? "btn-outline-danger" : "btn-primary")"
                     @onclick="ToggleScanMode">
-                @if (isAutoScanMode) {
+                @if (isAutoScanMode)
+                {
                     <span>⏹ Dừng Quét (Chuyển về chế độ Xem)</span>
-                } else {
+                }
+                else
+                {
                     <span>▶ Bật Auto Scan (Kích hoạt AI)</span>
                 }
             </button>
@@ -53,7 +57,7 @@
     {
         <div class="empty-state">
             <p>Chưa có trạm nào.</p>
-            <a href="/admin/stations" class="btn-primary">Thêm trạm</a>
+            <a href="/admin/stations" class="btn btn-primary">Thêm trạm</a>
         </div>
     }
     else
@@ -64,7 +68,9 @@
                 var isRec = recordingStatus.TryGetValue(st.Name, out var currentQr);
                 var stateClass = isRec ? "rec" : "ready";
                 var stateText = isRec ? "RECORDING" : "READY";
-                var userText = st.CurrentUser == null ? "---" : (st.CurrentUser.FullName ?? st.CurrentUser.Username);
+                var userText = st.CurrentUser == null
+                    ? "---"
+                    : (st.CurrentUser.FullName ?? st.CurrentUser.Username);
 
                 <section class="station-card @(isRec ? "border-danger" : "")">
                     <div class="station-header">
@@ -78,31 +84,50 @@
                     </div>
 
                     <div class="station-body">
+                        <!-- OVERVIEW CAM -->
                         <div class="camera-block">
                             <div class="cam-label">Overview</div>
                             <div class="video-wrapper">
                                 @if (!string.IsNullOrWhiteSpace(st.OverviewCamera?.RtspUrl))
                                 {
-                                    <iframe class="video-frame" scrolling="no"
+                                    <iframe class="video-frame"
+                                            scrolling="no"
                                             src="@($"{StreamBaseUrl}/{st.OverviewCamera.Name}/")"
                                             allow="autoplay; fullscreen"></iframe>
                                 }
-                                else { <div class="no-camera">No Signal</div> }
-                                
-                                <div class="overlay overlay-top-left"><span class="overlay-tag">CAM 01</span></div>
-                                @if (isRec) {
-                                    <div class="overlay overlay-top-right"><div class="qr-text">@currentQr</div></div>
+                                else
+                                {
+                                    <div class="no-camera">No Signal</div>
+                                }
+
+                                <div class="overlay overlay-top-left">
+                                    <span class="overlay-tag">CAM 01</span>
+                                </div>
+
+                                @if (isRec && !string.IsNullOrWhiteSpace(currentQr))
+                                {
+                                    <div class="overlay overlay-top-right">
+                                        <div class="qr-text">@currentQr</div>
+                                    </div>
                                 }
                             </div>
                         </div>
 
+                        <!-- QR CAM -->
                         <div class="camera-block @(isRec && isAutoScanMode ? "rec-active" : "")">
                             <div class="d-flex justify-content-between">
                                 <div class="cam-label">QR Cam</div>
-                                @if(isAutoScanMode) {
-                                    <small class="text-success fw-bold animate-pulse" style="font-size: 0.7rem">⚡ SCANNING...</small>
-                                } else {
-                                    <small class="text-muted" style="font-size: 0.7rem">👁 VIEW ONLY</small>
+                                @if (isAutoScanMode)
+                                {
+                                    <small class="text-success fw-bold animate-pulse" style="font-size:0.7rem">
+                                        ⚡ SCANNING...
+                                    </small>
+                                }
+                                else
+                                {
+                                    <small class="text-muted" style="font-size:0.7rem">
+                                        👁 VIEW ONLY
+                                    </small>
                                 }
                             </div>
 
@@ -111,10 +136,10 @@
                                 {
                                     @if (isAutoScanMode)
                                     {
-                                        /* === CHẾ ĐỘ SCAN: Dùng Video + Canvas để JS xử lý === */
+                                        <!-- CHẾ ĐỘ SCAN: HLS + VIDEO + CANVAS -->
                                         <video id="video-@st.Id" class="video-frame" muted playsinline autoplay></video>
-                                        <canvas id="canvas-@st.Id" style="display:none;"></canvas>
-                                        
+                                        <canvas id="canvas-@st.Id" style="position:absolute; inset:0;"></canvas>
+
                                         <div class="qr-corner qr-corner-tl"></div>
                                         <div class="qr-corner qr-corner-tr"></div>
                                         <div class="qr-corner qr-corner-bl"></div>
@@ -122,17 +147,26 @@
                                     }
                                     else
                                     {
-                                        /* === CHẾ ĐỘ XEM: Dùng Iframe (Fix lỗi đen màn hình) === */
-                                        <iframe class="video-frame" scrolling="no"
-                                            src="@($"{StreamBaseUrl}/{st.QrCamera.Name}/")"
-                                            allow="autoplay; fullscreen"></iframe>
+                                        <!-- CHẾ ĐỘ XEM: IFRAME (tránh đen màn hình) -->
+                                        <iframe class="video-frame"
+                                                scrolling="no"
+                                                src="@($"{StreamBaseUrl}/{st.QrCamera.Name}/")"
+                                                allow="autoplay; fullscreen"></iframe>
                                     }
                                 }
-                                else { <div class="no-camera">No QR Cam</div> }
+                                else
+                                {
+                                    <div class="no-camera">No QR Cam</div>
+                                }
 
-                                <div class="overlay overlay-top-left"><span class="overlay-tag">CAM 02</span></div>
+                                <div class="overlay overlay-top-left">
+                                    <span class="overlay-tag">CAM 02</span>
+                                </div>
                             </div>
-                            <div class="cam-footer"><code>@st.QrCamera?.RtspUrl</code></div>
+
+                            <div class="cam-footer">
+                                <code>@st.QrCamera?.RtspUrl</code>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -142,78 +176,315 @@
 </div>
 
 <style>
-    /* Visual Styles */
-    .qr-corner { position: absolute; width: 20px; height: 20px; border-color: rgba(255,255,255,0.6); border-style: solid; z-index: 10; pointer-events: none; }
+    .live-container {
+        padding: 1.5rem 2rem;
+    }
+
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+
+    .header-sub {
+        font-size: 0.9rem;
+        color: #4b5563;
+    }
+
+    .status-badge {
+        background: #fee2e2;
+        color: #b91c1c;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .live-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: #ef4444;
+        box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.5);
+    }
+
+    .station-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+    }
+
+    .station-card {
+        border-radius: 10px;
+        border: 1px solid #e5e7eb;
+        padding: 1rem 1.25rem;
+        background: #ffffff;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+    }
+
+    .station-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+    }
+
+    .station-id {
+        font-weight: 700;
+        font-size: 1.05rem;
+        color: #111827;
+    }
+
+    .station-state-pill {
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: white;
+    }
+
+    .station-state-pill.ready {
+        background: #16a34a;
+    }
+
+    .station-state-pill.rec {
+        background: #dc2626;
+    }
+
+    .station-body {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+        gap: 0.75rem;
+    }
+
+    .camera-block {
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        padding: 0.5rem;
+        background: #f9fafb;
+    }
+
+    .camera-block.rec-active {
+        border-color: #fecaca;
+        box-shadow: 0 0 0 1px #fecaca;
+    }
+
+    .cam-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #4b5563;
+        margin-bottom: 0.25rem;
+    }
+
+    .video-wrapper {
+        position: relative;
+        background: #000;
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .video-frame {
+        width: 100%;
+        height: 260px;
+        border: none;
+        display: block;
+        background: #000;
+    }
+
+    .no-camera {
+        height: 260px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #9ca3af;
+        font-size: 0.9rem;
+        background: repeating-linear-gradient(
+            45deg,
+            #e5e7eb,
+            #e5e7eb 10px,
+            #f3f4f6 10px,
+            #f3f4f6 20px
+        );
+    }
+
+    .overlay {
+        position: absolute;
+        z-index: 5;
+        pointer-events: none;
+    }
+
+    .overlay-top-left {
+        top: 6px;
+        left: 6px;
+    }
+
+    .overlay-top-right {
+        top: 6px;
+        right: 6px;
+    }
+
+    .overlay-tag {
+        background: rgba(0, 0, 0, 0.65);
+        color: #e5e7eb;
+        font-size: 0.7rem;
+        padding: 2px 6px;
+        border-radius: 999px;
+        letter-spacing: 0.05em;
+    }
+
+    .qr-text {
+        background: rgba(15, 23, 42, 0.72);
+        color: #fef3c7;
+        font-size: 0.75rem;
+        padding: 4px 8px;
+        border-radius: 6px;
+        max-width: 220px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .cam-footer {
+        margin-top: 4px;
+        font-size: 0.7rem;
+        color: #9ca3af;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .spinner-container,
+    .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem 1rem;
+        color: #6b7280;
+    }
+
+    .spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid #e5e7eb;
+        border-top-color: #3b82f6;
+        border-radius: 999px;
+        animation: spin 0.6s linear infinite;
+        margin-bottom: 0.5rem;
+    }
+
+    .user-badge {
+        background: #f3f4f6;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        color: #374151;
+        font-weight: 600;
+    }
+
+    .station-card.border-danger {
+        border-color: #fca5a5;
+        box-shadow: 0 0 15px rgba(239, 68, 68, 0.12);
+    }
+
+    .qr-corner {
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        border-color: rgba(255, 255, 255, 0.8);
+        border-style: solid;
+        z-index: 10;
+        pointer-events: none;
+    }
+
     .qr-corner-tl { top: 10px; left: 10px; border-width: 2px 0 0 2px; }
     .qr-corner-tr { top: 10px; right: 10px; border-width: 2px 2px 0 0; }
     .qr-corner-bl { bottom: 10px; left: 10px; border-width: 0 0 2px 2px; }
     .qr-corner-br { bottom: 10px; right: 10px; border-width: 0 2px 2px 0; }
-    
-    .station-card.border-danger { border-color: #fca5a5; box-shadow: 0 0 15px rgba(239, 68, 68, 0.15); transition: all 0.3s; }
-    .rec-active .qr-corner { border-color: #ef4444; }
-    .animate-pulse { animation: pulse 1.5s infinite; }
-    @@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-    .user-badge { background: #f3f4f6; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; color: #374151; font-weight: 600; }
+
+      .animate-pulse { animation: pulse 1.5s infinite; }
+
+    @@keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.45; }
+        100% { opacity: 1; }
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
 </style>
 
 @code {
     private List<Station> stations = new();
     private Dictionary<string, string> recordingStatus = new();
-    
-    // Mặc định là FALSE (Chế độ xem) để đảm bảo không bị đen màn hình lúc đầu
-    // Người dùng bấm nút mới chuyển sang TRUE (Chế độ quét)
-    private bool isAutoScanMode = false; 
-    
+
+    // FALSE = xem, TRUE = auto scan
+    private bool isAutoScanMode = false;
+
     private bool loading = true;
     private string StreamBaseUrl = "http://localhost:8889";
     private string HlsBaseUrl = "http://localhost:8888";
-    
+
     private System.Threading.Timer? statusTimer;
     private DotNetObjectReference<LiveCameraPage>? objRef;
 
     protected override void OnInitialized()
     {
-        try { 
+        try
+        {
             var uri = new Uri(Nav.BaseUri);
             StreamBaseUrl = $"http://{uri.Host}:8889";
             HlsBaseUrl = $"http://{uri.Host}:8888";
-        } catch {}
+        }
+        catch { }
+
         objRef = DotNetObjectReference.Create(this);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
-        {
-            var auth = await AuthStateProvider.GetAuthenticationStateAsync();
-            if (!auth.User.Identity?.IsAuthenticated ?? false)
-            {
-                Nav.NavigateTo("/login");
-                return;
-            }
+        if (!firstRender)
+            return;
 
-            await LoadStations();
-            statusTimer = new System.Threading.Timer(async _ => await CheckRecordingStatus(), null, 0, 1000);
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (!(auth.User.Identity?.IsAuthenticated ?? false))
+        {
+            Nav.NavigateTo("/login");
+            return;
         }
+
+        await LoadStations();
+
+        // Poll trạng thái RECORDING từ backend
+        statusTimer = new System.Threading.Timer(
+            async _ => await CheckRecordingStatus(),
+            null,
+            0,
+            1000
+        );
     }
 
-    // Hàm chuyển đổi chế độ
     private async Task ToggleScanMode()
     {
         isAutoScanMode = !isAutoScanMode;
-        
-        // Nếu tắt Scan -> Dừng JS
+
+        // Tắt quét: stop tất cả JS
         if (!isAutoScanMode)
         {
-            try { await JS.InvokeVoidAsync("stopHlsScan", null); } catch {}
+            try { await JS.InvokeVoidAsync("stopHlsScan", (object?)null); } catch { }
         }
-        
+
         StateHasChanged();
 
-        // Nếu bật Scan -> Đợi DOM render thẻ <video> rồi khởi động JS
+        // Bật quét: đợi DOM render xong <video>, rồi start scanners
         if (isAutoScanMode)
         {
-            await Task.Delay(500); 
+            await Task.Delay(500);
             await InitializeAllScanners();
         }
     }
@@ -224,11 +495,15 @@
         {
             loading = true;
             StateHasChanged();
+
             await AttachToken();
             stations = await Http.GetFromJsonAsync<List<Station>>("api/station") ?? new();
             stations = stations.OrderBy(s => s.Name).ToList();
         }
-        catch (Exception ex) { Console.WriteLine(ex.Message); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"LoadStations error: {ex.Message}");
+        }
         finally
         {
             loading = false;
@@ -238,59 +513,70 @@
 
     private async Task InitializeAllScanners()
     {
-        // Chỉ chạy khi đang ở chế độ Auto Scan
-        if (!isAutoScanMode) return;
+        if (!isAutoScanMode || objRef is null) return;
 
         foreach (var st in stations)
         {
             if (st.QrCamera != null && !string.IsNullOrEmpty(st.QrCamera.RtspUrl))
             {
-                string hlsUrl = $"{HlsBaseUrl}/{st.QrCamera.Name}/index.m3u8";
-                try {
-                    await JS.InvokeVoidAsync("startHlsScanByElementId", 
-                        hlsUrl, 
-                        $"video-{st.Id}", 
-                        $"canvas-{st.Id}", 
-                        objRef, 
-                        true 
+                var hlsUrl = $"{HlsBaseUrl}/{st.QrCamera.Name}/index.m3u8";
+
+                try
+                {
+                    await JS.InvokeVoidAsync(
+                        "startHlsScanByElementId",
+                        hlsUrl,
+                        $"video-{st.Id}",
+                        $"canvas-{st.Id}",
+                        objRef,
+                        true,
+                        st.Name // stationName
                     );
-                } catch {}
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Init scanner for {st.Name} failed: {ex.Message}");
+                }
             }
         }
     }
 
-    // Hàm nhận mã từ JS (Giống ScanningPage)
+    // JS gọi sang: mỗi lần đọc được mã tại một TRẠM
     [JSInvokable]
-    public async Task ProcessScan(string code)
+    public async Task ProcessScan(string stationName, string code)
     {
-        if (string.IsNullOrWhiteSpace(code)) return;
+        if (string.IsNullOrWhiteSpace(code))
+            return;
 
-        try 
+        try
         {
             await AttachToken();
-            
-            // Gửi mã lên API để xử lý (Start/Stop Recording)
-            // Lưu ý: Backend cần logic xử lý xem mã này thuộc về trạm nào đang active
-            // Hoặc đơn giản là gửi broadcast
-            
-            var payload = new 
-            { 
-                QrCode = code, 
+
+            var payload = new
+            {
+                QrCode = code,
+                Station = stationName,
                 Source = "LiveDashboard",
-                Mode = 1 
+                Mode = 1  // tuỳ backend bạn xử lý (toggle start/stop)
             };
-            
+
             await Http.PostAsJsonAsync("api/record/scan", payload);
-        } 
-        catch (Exception ex) { Console.WriteLine($"Scan Error: {ex.Message}"); }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ProcessScan error: {ex.Message}");
+        }
     }
-    
+
     private async Task CheckRecordingStatus()
     {
         try
         {
             await AttachToken();
-            var status = await Http.GetFromJsonAsync<Dictionary<string, string>>("api/record/recording-status");
+            var status =
+                await Http.GetFromJsonAsync<Dictionary<string, string>>(
+                    "api/record/recording-status");
+
             if (status != null)
             {
                 recordingStatus = status;
@@ -304,19 +590,24 @@
     {
         var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
         if (!string.IsNullOrEmpty(token))
-            Http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-    }
-    
-    private static string GetCameraIp(string? rtsp)
-    {
-        if (string.IsNullOrWhiteSpace(rtsp)) return "";
-        try { return new Uri(rtsp.Replace("rtsp://", "http://")).Host; } catch { return ""; }
+        {
+            Http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", token);
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
         statusTimer?.Dispose();
-        objRef?.Dispose();
-        try { await JS.InvokeVoidAsync("stopHlsScan", null); } catch {}
+        if (objRef != null)
+        {
+            objRef.Dispose();
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("stopHlsScan", (object?)null);
+        }
+        catch { }
     }
 }

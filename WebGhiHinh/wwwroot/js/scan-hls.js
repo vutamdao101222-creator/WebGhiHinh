@@ -1,42 +1,56 @@
 ﻿// ==========================================
-// FILE: wwwroot/js/scan-hls.js (v5.1 ULTIMATE - PRE-PROCESSING)
-// - Hỗ trợ: 10-20 Camera cùng lúc (Scheduler Round-Robin)
-// - Tối ưu RAM: Shared Canvas Memory
-// - NÂNG CẤP: Tự động xử lý ảnh (Grayscale + High Contrast) giúp đọc mã mờ/tối cực tốt
+// FILE: wwwroot/js/scan-hls.js
 // ==========================================
 
-// ====== TÀI NGUYÊN DÙNG CHUNG (GLOBAL SHARED) ======
-// Canvas này dùng để xử lý ảnh ngầm, không hiển thị ra ngoài
-const _sharedCanvas = new OffscreenCanvas(800, 450); // Tăng size lên chút để nét hơn
+// ====== TÀI NGUYÊN DÙNG CHUNG ======
+const _sharedCanvas =
+    typeof OffscreenCanvas !== "undefined"
+        ? new OffscreenCanvas(800, 450)
+        : (() => {
+            const c = document.createElement("canvas");
+            c.width = 800;
+            c.height = 450;
+            return c;
+        })();
+
 const _sharedCtx = _sharedCanvas.getContext("2d", { willReadFrequently: true });
 
 // ====== CẤU HÌNH ======
-const SCAN_INTERVAL_MS = 150;     // Tốc độ quét mỗi cam (ms)
-const QUEUE_DELAY_MS = 10;        // Độ trễ giữa các lần chuyển cam
+const SCAN_INTERVAL_MS = 150;
+const QUEUE_DELAY_MS = 10;
 const DEBUG_TEXT_MAX = 60;
 
-// ====== DEBUG CONFIG (Hiển thị nhãn trên khung hình) ======
+// ====== DEBUG CONFIG ======
 const DEBUG_FONT_RATIO = 0.045;
 const DEBUG_MIN_FONT = 28;
 const DEBUG_MAX_FONT = 64;
 const DEBUG_BG_ALPHA = 0.85;
-const USE_FIXED_CORNER_LABEL = false; // False = nhãn chạy theo mã QR
+const USE_FIXED_CORNER_LABEL = false;
 
-// ====== KHỞI TẠO ENGINE ======
-const nativeDetector = ('BarcodeDetector' in window)
-    ? new BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'ean_8', 'code_39', 'upc_a'] })
-    : null;
+// ====== ENGINE ======
+const nativeDetector =
+    "BarcodeDetector" in window
+        ? new BarcodeDetector({
+            formats: [
+                "qr_code",
+                "code_128",
+                "ean_13",
+                "ean_8",
+                "code_39",
+                "upc_a",
+            ],
+        })
+        : null;
 
 let zxingReader = null;
 try {
     if (window.ZXing) zxingReader = new ZXing.BrowserMultiFormatReader();
-} catch (e) { }
+} catch { }
 
-// ====== BỘ ĐIỀU PHỐI (SCHEDULER) ======
-const scanQueue = [];       // Hàng đợi các camera đang chờ quét
-let isProcessing = false;   // Cờ khóa (Lock)
+// ====== SCHEDULER ======
+const scanQueue = [];
+let isProcessing = false;
 
-// Vòng lặp xử lý hàng đợi (Core Loop)
 async function processQueue() {
     if (scanQueue.length === 0) {
         isProcessing = false;
@@ -44,23 +58,24 @@ async function processQueue() {
     }
 
     isProcessing = true;
-
-    // Lấy camera đầu tiên ra xử lý
     const instance = scanQueue.shift();
 
     try {
-        if (instance && instance.enabled && instance.videoEl && !instance.videoEl.paused) {
+        if (
+            instance &&
+            instance.enabled &&
+            instance.videoEl &&
+            !instance.videoEl.paused
+        ) {
             await detectFrame(instance);
         }
     } catch (e) {
         console.warn("Scan error:", e);
     }
 
-    // Nghỉ 1 chút rồi xử lý tiếp
     setTimeout(processQueue, QUEUE_DELAY_MS);
 }
 
-// Đăng ký vào hàng đợi
 function enqueue(instance) {
     if (!scanQueue.includes(instance)) {
         scanQueue.push(instance);
@@ -72,13 +87,17 @@ function enqueue(instance) {
 const instances = new Map();
 
 class CameraInstance {
-    constructor(videoEl, canvasEl, dotnetRef, enableScan) {
+    constructor(videoEl, canvasEl, dotnetRef, enableScan, stationName) {
         this.videoEl = videoEl;
         this.canvasEl = canvasEl;
-        this.ctx = canvasEl ? canvasEl.getContext("2d", { willReadFrequently: true }) : null;
+        this.ctx = canvasEl
+            ? canvasEl.getContext("2d", { willReadFrequently: true })
+            : null;
         this.dotnetRef = dotnetRef;
         this.enabled = enableScan;
         this.hls = null;
+
+        this.stationName = stationName || null; // Lưu tên trạm
 
         this.lastRegisterTime = 0;
         this.activeCode = "";
@@ -89,7 +108,9 @@ class CameraInstance {
 
     destroy() {
         if (this.hls) {
-            try { this.hls.destroy(); } catch { }
+            try {
+                this.hls.destroy();
+            } catch { }
         }
         this.enabled = false;
     }
@@ -97,13 +118,24 @@ class CameraInstance {
 
 // ====== PUBLIC API ======
 
-window.startHlsScan = (hlsUrl, videoEl, canvasEl, dotnetRef, enableScan) => {
+// Dùng trực tiếp với element
+window.startHlsScan = (
+    hlsUrl,
+    videoEl,
+    canvasEl,
+    dotnetRef,
+    enableScan,
+    stationName
+) => {
     if (!videoEl) return;
-
     let instance = instances.get(videoEl);
 
     if (instance) {
-        if (instance.hls && videoEl.src && !videoEl.src.includes(encodeURI(hlsUrl))) {
+        if (
+            instance.hls &&
+            videoEl.src &&
+            !videoEl.src.includes(encodeURI(hlsUrl))
+        ) {
             window.stopHlsScan(videoEl);
             instance = null;
         } else {
@@ -111,11 +143,18 @@ window.startHlsScan = (hlsUrl, videoEl, canvasEl, dotnetRef, enableScan) => {
             instance.dotnetRef = dotnetRef;
             instance.canvasEl = canvasEl;
             instance.ctx = canvasEl ? canvasEl.getContext("2d") : null;
+            instance.stationName = stationName || null;
             return;
         }
     }
 
-    instance = new CameraInstance(videoEl, canvasEl, dotnetRef, enableScan);
+    instance = new CameraInstance(
+        videoEl,
+        canvasEl,
+        dotnetRef,
+        enableScan,
+        stationName
+    );
     instances.set(videoEl, instance);
 
     videoEl.muted = true;
@@ -131,29 +170,33 @@ window.startHlsScan = (hlsUrl, videoEl, canvasEl, dotnetRef, enableScan) => {
                 lowLatencyMode: true,
                 backBufferLength: 0,
                 maxBufferLength: 6,
-                liveSyncDuration: 1
+                liveSyncDuration: 1,
             });
             hls.loadSource(hlsUrl);
             hls.attachMedia(videoEl);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => { }));
+            hls.on(Hls.Events.MANIFEST_PARSED, () =>
+                videoEl.play().catch(() => { })
+            );
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (!data.fatal) return;
                 if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
                 else hls.recoverMediaError();
             });
             instance.hls = hls;
-        } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+        } else if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
             videoEl.src = hlsUrl;
             videoEl.play().catch(() => { });
         }
-    } catch (e) { console.error("HLS Init Error:", e); }
+    } catch (e) {
+        console.error("HLS Init Error:", e);
+    }
 
     requestAnimationFrame(() => instanceLoop(instance));
 };
 
 window.stopHlsScan = (videoEl) => {
     if (!videoEl) {
-        instances.forEach(i => i.destroy());
+        instances.forEach((i) => i.destroy());
         instances.clear();
         scanQueue.length = 0;
         return;
@@ -165,22 +208,24 @@ window.stopHlsScan = (videoEl) => {
     }
 };
 
-// ====== VÒNG LẶP RIÊNG CỦA TỪNG CAM ======
 function instanceLoop(instance) {
     if (!instances.has(instance.videoEl)) return;
-
     const now = performance.now();
 
-    // Xóa overlay mỗi frame để video bên dưới hiển thị rõ
     if (instance.ctx && instance.canvasEl) {
         if (instance.canvasEl.width !== instance.videoEl.videoWidth) {
             instance.canvasEl.width = instance.videoEl.videoWidth;
             instance.canvasEl.height = instance.videoEl.videoHeight;
         }
-        instance.ctx.clearRect(0, 0, instance.canvasEl.width, instance.canvasEl.height);
+        instance.ctx.clearRect(
+            0,
+            0,
+            instance.canvasEl.width,
+            instance.canvasEl.height
+        );
     }
 
-    if (instance.enabled && (now - instance.lastRegisterTime > SCAN_INTERVAL_MS)) {
+    if (instance.enabled && now - instance.lastRegisterTime > SCAN_INTERVAL_MS) {
         instance.lastRegisterTime = now;
         enqueue(instance);
     }
@@ -188,42 +233,51 @@ function instanceLoop(instance) {
     requestAnimationFrame(() => instanceLoop(instance));
 }
 
-// ====== XỬ LÝ ẢNH THÔNG MINH (SMART DETECTION) ======
+// ====== DETECT FRAME ======
 async function detectFrame(instance) {
     const video = instance.videoEl;
     if (!video.videoWidth) return;
 
-    // 1. Chuẩn bị kích thước (Resize về 800px để cân bằng tốc độ/độ nét)
     const w = Math.min(video.videoWidth, 800);
     const h = Math.round(video.videoHeight * (w / video.videoWidth));
 
     if (_sharedCanvas.width !== w) _sharedCanvas.width = w;
     if (_sharedCanvas.height !== h) _sharedCanvas.height = h;
 
-    // --- CHIẾN THUẬT 2 LỚP (2-PASS STRATEGY) ---
-
-    // Pass 1: Quét ảnh gốc (Nhanh nhất, cho trường hợp mã rõ nét)
+    // Pass 1
     _sharedCtx.filter = "none";
     _sharedCtx.drawImage(video, 0, 0, w, h);
     let result = await tryDetect(_sharedCanvas);
 
-    // Pass 2: Nếu Pass 1 thất bại -> Bật bộ lọc "Xuyên màn đêm"
+    // Pass 2 (đen trắng + contrast)
     if (!result) {
-        // grayscale(1): Chuyển đen trắng để loại bỏ nhiễu màu
-        // contrast(2.0): Tăng tương phản gấp đôi (đen thành đen kịt, trắng thành trắng toát)
-        // brightness(1.1): Tăng sáng nhẹ nếu cam trong góc tối
         _sharedCtx.filter = "grayscale(1) contrast(2.0) brightness(1.1)";
         _sharedCtx.drawImage(video, 0, 0, w, h);
         result = await tryDetect(_sharedCanvas);
     }
 
-    // Xử lý kết quả
     if (result) {
-        // Vẽ lại khung lên màn hình (nếu có overlay)
         if (instance.ctx && instance.canvasEl) {
-            drawBox(instance.ctx, result.loc, result.type, video.videoWidth, video.videoHeight, w, h);
+            drawBox(
+                instance.ctx,
+                result.loc,
+                result.type,
+                video.videoWidth,
+                video.videoHeight,
+                w,
+                h
+            );
             if (!USE_FIXED_CORNER_LABEL) {
-                drawDebugLabel(instance.ctx, result.loc, result.type, result.data, video.videoWidth, video.videoHeight, w, h);
+                drawDebugLabel(
+                    instance.ctx,
+                    result.loc,
+                    result.type,
+                    result.data,
+                    video.videoWidth,
+                    video.videoHeight,
+                    w,
+                    h
+                );
             }
         }
         handleScanResult(instance, result.data);
@@ -232,30 +286,32 @@ async function detectFrame(instance) {
     }
 }
 
-// Hàm phụ trợ: Thử quét bằng cả Native và ZXing
 async function tryDetect(canvasSource) {
-    // 1. Ưu tiên Native (GPU - Chrome/Android)
     if (nativeDetector) {
         try {
             const barcodes = await nativeDetector.detect(canvasSource);
             if (barcodes.length > 0) {
-                return { data: barcodes[0].rawValue, type: 'native', loc: barcodes[0] };
+                return {
+                    data: barcodes[0].rawValue,
+                    type: "native",
+                    loc: barcodes[0],
+                };
             }
         } catch { }
     }
-    // 2. Dự phòng ZXing (CPU - Các trình duyệt khác)
+
     if (zxingReader) {
         try {
             const zxRes = zxingReader.decodeFromCanvas(canvasSource);
             if (zxRes) {
-                return { data: zxRes.getText(), type: 'zxing', loc: null };
+                return { data: zxRes.getText(), type: "zxing", loc: null };
             }
         } catch { }
     }
     return null;
 }
 
-// ====== LOGIC DEDUPE & EMIT ======
+// ====== EMIT KẾT QUẢ ======
 function handleScanResult(instance, code) {
     const now = Date.now();
 
@@ -269,12 +325,24 @@ function handleScanResult(instance, code) {
         instance.lastSeen = now;
     }
 
-    // Logic: Thấy 2 lần liên tiếp hoặc tồn tại > 200ms thì chốt đơn
-    if (!instance.isEmitted && (instance.stableCount >= 2 || (now - instance.lastSeen < 200))) {
+    if (
+        !instance.isEmitted &&
+        (instance.stableCount >= 2 || now - instance.lastSeen < 200)
+    ) {
         instance.isEmitted = true;
 
         if (instance.dotnetRef) {
-            instance.dotnetRef.invokeMethodAsync("ProcessScan", code).catch(() => { });
+            if (instance.stationName && instance.stationName.length > 0) {
+                // Live: có StationName
+                instance.dotnetRef
+                    .invokeMethodAsync("ProcessScan", instance.stationName, code)
+                    .catch(() => { });
+            } else {
+                // Trang scan cũ
+                instance.dotnetRef
+                    .invokeMethodAsync("ProcessScan", code)
+                    .catch(() => { });
+            }
         }
 
         playBeep();
@@ -282,26 +350,23 @@ function handleScanResult(instance, code) {
 }
 
 function handleScanLost(instance) {
-    // Reset nếu mất dấu quá 1s
-    if (instance.activeCode && (Date.now() - instance.lastSeen > 1000)) {
+    if (instance.activeCode && Date.now() - instance.lastSeen > 1000) {
         instance.activeCode = "";
         instance.stableCount = 0;
         instance.isEmitted = false;
     }
 }
 
-// ====== UTILS VẼ KHUNG ======
+// ====== OVERLAY ======
 function drawBox(ctx, loc, type, realW, realH, scanW, scanH) {
-    if (type !== 'native' || !loc || !loc.cornerPoints) return;
-
+    if (type !== "native" || !loc || !loc.cornerPoints) return;
     const scaleX = realW / scanW;
     const scaleY = realH / scanH;
     const p = loc.cornerPoints;
 
     ctx.beginPath();
     ctx.lineWidth = 4;
-    ctx.strokeStyle = "#00FF00"; // Xanh lá cây
-
+    ctx.strokeStyle = "#00FF00";
     ctx.moveTo(p[0].x * scaleX, p[0].y * scaleY);
     ctx.lineTo(p[1].x * scaleX, p[1].y * scaleY);
     ctx.lineTo(p[2].x * scaleX, p[2].y * scaleY);
@@ -326,8 +391,7 @@ function roundRect(ctx, x, y, width, height, radius) {
 }
 
 function drawDebugLabel(ctx, loc, type, text, realW, realH, scanW, scanH) {
-    if (type !== 'native' || !loc || !loc.cornerPoints) return;
-
+    if (type !== "native" || !loc || !loc.cornerPoints) return;
     const t = (text || "").slice(0, DEBUG_TEXT_MAX);
     if (!t) return;
 
@@ -341,9 +405,8 @@ function drawDebugLabel(ctx, loc, type, text, realW, realH, scanW, scanH) {
 
     const textHeight = Math.round(fontSize * 1.15);
     const padding = Math.round(fontSize * 0.35);
-
     const x = Math.max(0, p[0].x * scaleX);
-    const y = Math.max(textHeight + padding + 10, (p[0].y * scaleY) - 10);
+    const y = Math.max(textHeight + padding + 10, p[0].y * scaleY - 10);
 
     ctx.save();
     ctx.font = `bold ${fontSize}px 'Segoe UI', Roboto, Helvetica, Arial, sans-serif`;
@@ -353,17 +416,25 @@ function drawDebugLabel(ctx, loc, type, text, realW, realH, scanW, scanH) {
     const textWidth = metrics.width;
 
     ctx.fillStyle = `rgba(0, 0, 0, ${DEBUG_BG_ALPHA})`;
-    roundRect(ctx, x, y - textHeight - padding, textWidth + padding * 2, textHeight + padding, 10);
+    roundRect(
+        ctx,
+        x,
+        y - textHeight - padding,
+        textWidth + padding * 2,
+        textHeight + padding,
+        10
+    );
     ctx.fill();
 
     ctx.fillStyle = "#00FF00";
     ctx.shadowColor = "black";
     ctx.shadowBlur = 8;
-    ctx.fillText(t, x + padding, y - (padding / 2));
+    ctx.fillText(t, x + padding, y - padding / 2);
 
     ctx.restore();
 }
 
+// ====== ÂM THANH BEEP ======
 window.playBeep = () => {
     try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -374,7 +445,10 @@ window.playBeep = () => {
         osc.frequency.value = 1200;
         gain.gain.value = 0.05;
         osc.start();
-        setTimeout(() => { osc.stop(); ctx.close(); }, 50);
+        setTimeout(() => {
+            osc.stop();
+            ctx.close();
+        }, 50);
     } catch { }
 };
 
@@ -382,11 +456,19 @@ window.getHlsScanState = () => ({
     queueSize: scanQueue.length,
     activeInstances: instances.size,
     isProcessing,
-    nativeSupport: !!nativeDetector
+    nativeSupport: !!nativeDetector,
 });
 
-window.startHlsScanByElementId = (hlsUrl, vidId, canId, dotRef, enable) => {
+// Hàm tiện cho Blazor — truyền thêm stationName
+window.startHlsScanByElementId = (
+    hlsUrl,
+    vidId,
+    canId,
+    dotRef,
+    enable,
+    stationName
+) => {
     const v = document.getElementById(vidId);
     const c = document.getElementById(canId);
-    if (v) window.startHlsScan(hlsUrl, v, c, dotRef, enable);
+    if (v) window.startHlsScan(hlsUrl, v, c, dotRef, enable, stationName);
 };
