@@ -1,11 +1,11 @@
-﻿namespace WebGhiHinh.Models
+﻿// FILE: Models/Camera.cs
+namespace WebGhiHinh.Models
 {
     public class Camera
     {
         public int Id { get; set; }
         public string Name { get; set; } = "";
         public string RtspUrl { get; set; } = "";
-
-        public string? Description { get; set; } // ✅ thêm dòng này
+        public string? Description { get; set; }
     }
 }

@@ -1,30 +1,29 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿// FILE: Models/User.cs
+using System.ComponentModel.DataAnnotations;
 
 namespace WebGhiHinh.Models
 {
     public class User
     {
-        [Key]
         public int Id { get; set; }
 
-        [Required]
-        [MaxLength(50)]
+        [Required, MaxLength(60)]
         public string Username { get; set; } = string.Empty;
 
         [Required]
         public string PasswordHash { get; set; } = string.Empty;
 
-        [MaxLength(20)]
-        public string Role { get; set; } = "user";
+        [MaxLength(120)]
+        public string FullName { get; set; } = string.Empty;
 
-        // 👉 CÁC TRƯỜNG MỚI THÊM
-        [MaxLength(100)]
-        public string FullName { get; set; } = string.Empty; // Họ và tên
-
-        [MaxLength(20)]
-        public string EmployeeCode { get; set; } = string.Empty; // Mã nhân viên
+        // QR nhân viên nên encode đúng EmployeeCode này
+        [MaxLength(50)]
+        public string EmployeeCode { get; set; } = string.Empty;
 
         [MaxLength(200)]
-        public string Address { get; set; } = string.Empty; // Địa chỉ
+        public string Address { get; set; } = string.Empty;
+
+        [MaxLength(30)]
+        public string Role { get; set; } = "user";
     }
 }

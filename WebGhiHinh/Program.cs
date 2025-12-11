@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.Server;
+using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -13,13 +15,12 @@ using WebGhiHinh.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ==========================================
-// 1. ĐĂNG KÝ SERVICES
-// ==========================================
+// ===============================
+// Controllers + Swagger
+// ===============================
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// Swagger có nút Authorize
 builder.Services.AddSwaggerGen(options =>
 {
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -43,45 +44,57 @@ builder.Services.AddSwaggerGen(options =>
                     Id = "Bearer"
                 }
             },
-            new string[] {}
+            Array.Empty<string>()
         }
     });
 });
 
-// Kết nối SQL
+// ===============================
+// Database
+// ===============================
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// FFMPEG
-builder.Services.AddSingleton<FfmpegService>();
+// ===============================
+// Blazor Razor Components
+// ===============================
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
 
-// ✅ FIX QUAN TRỌNG: HttpClient base động theo host đang chạy web
-builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped(sp =>
+// ✅ Bật lỗi chi tiết circuit để tránh trắng trang khó debug
+builder.Services.Configure<CircuitOptions>(o =>
 {
-    var accessor = sp.GetRequiredService<IHttpContextAccessor>();
-    var req = accessor.HttpContext?.Request;
-
-    // fallback an toàn nếu chưa có HttpContext (hiếm)
-    var baseUrl = req != null
-        ? $"{req.Scheme}://{req.Host}"
-        : "http://192.168.1.148";
-
-    return new HttpClient
-    {
-        BaseAddress = new Uri(baseUrl)
-    };
+    o.DetailedErrors = true;
 });
 
-// Auth State + Storage
+// ❌ TẠM TẮT handler cũ vì .NET 8 không có circuit.Services
+// builder.Services.AddSingleton<CircuitHandler, AutoReleaseCircuitHandler>();
+
+// ===============================
+// Services
+// ===============================
+builder.Services.AddSingleton<FfmpegService>();
+
+// HttpClient cho UI gọi API nội bộ
+builder.Services.AddScoped(sp => new HttpClient
+{
+    BaseAddress = new Uri("http://192.168.1.48/")
+});
+
 builder.Services.AddScoped<ProtectedSessionStorage>();
+
+// ===============================
+// Auth state for Blazor
+// ===============================
 builder.Services.AddScoped<AuthenticationStateProvider, CustomAuthStateProvider>();
 builder.Services.AddCascadingAuthenticationState();
 
-// Authentication JWT
+// ===============================
+// JWT for API
+// ===============================
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 
-var key = builder.Configuration["Jwt:Key"];
+var key = builder.Configuration["Jwt:Key"] ?? "";
 var issuer = builder.Configuration["Jwt:Issuer"];
 var audience = builder.Configuration["Jwt:Audience"];
 
@@ -89,7 +102,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.MapInboundClaims = false;
-
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -99,49 +111,61 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer = issuer,
             ValidAudience = audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
-
             RoleClaimType = "role",
             NameClaimType = "name"
         };
     });
 
+builder.Services.AddAuthorization();
+
+// ===============================
+// CORS
+// ===============================
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", b => b.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
+    options.AddPolicy("AllowAll", b =>
+        b.AllowAnyOrigin()
+         .AllowAnyHeader()
+         .AllowAnyMethod());
 });
-
-builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
 
 var app = builder.Build();
 
-// ==========================================
-// 2. MIDDLEWARE
-// ==========================================
+// ===============================
+// Swagger
+// ===============================
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.UseHttpsRedirection();
-
-// Static Files
+// ===============================
+// Static files
+// ===============================
 app.UseStaticFiles();
 
-// ✅ Video folder như bạn dùng
+// Map video folder: /videos -> C:\GhiHinhVideos
 var videoPath = @"C:\GhiHinhVideos";
 if (!Directory.Exists(videoPath)) Directory.CreateDirectory(videoPath);
+
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(videoPath),
     RequestPath = "/videos"
 });
 
-app.UseAntiforgery();
+// ===============================
+// Pipeline
+// ===============================
+app.UseHttpsRedirection();
+
 app.UseCors("AllowAll");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.UseAntiforgery();
+
 app.MapControllers();
+
 app.MapRazorComponents<App>()
    .AddInteractiveServerRenderMode();
 

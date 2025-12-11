@@ -33,7 +33,7 @@
                     <div class="d-flex align-items-center gap-2">
                         @if (occupiedStation != null)
                         {
-                            <button class="btn btn-sm btn-outline-secondary" @onclick="ReleaseStation">Rời trạm</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="ReleaseStation">Rời trạm (admin)</button>
                         }
                         <button class="btn btn-sm btn-outline-danger" @onclick="Logout">Đăng xuất</button>
                     </div>
@@ -56,7 +56,7 @@
                 }
                 else if (occupiedStation == null)
                 {
-                    <h1 class="scan-header">Chọn trạm làm việc</h1>
+                    <h1 class="scan-header">Chọn trạm làm việc (để gắn PC với trạm)</h1>
                     @if (loading)
                     {
                         <div class="spinner"></div>
@@ -66,12 +66,13 @@
                         <div class="station-grid">
                             @foreach (var station in stations)
                             {
-                                <div class="station-box @(station.CurrentUserId != null ? "disabled" : "")"
+                                <div class="station-box"
                                      @onclick="async () => await OccupyStation(station)">
                                     <span class="station-box-name">@station.Name</span>
+
                                     @if (station.CurrentUserId != null)
                                     {
-                                        <span class="station-box-user">🔴 Bận</span>
+                                        <span class="station-box-user">🔴 Đang có NV</span>
                                     }
                                     else
                                     {
@@ -88,6 +89,14 @@
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <div class="d-flex align-items-center gap-2">
                             <h2 class="scan-header mb-0" style="font-size: 1.25rem;">@occupiedStation.Name</h2>
+
+                            @if (occupiedStation.CurrentUser != null)
+                            {
+                                <span class="badge bg-dark">
+                                    👤 @occupiedStation.CurrentUser.FullName ?? occupiedStation.CurrentUser.Username
+                                </span>
+                            }
+
                             @if (!string.IsNullOrEmpty(currentRecordingQR))
                             {
                                 <span class="badge bg-danger animate-pulse">🔴 REC: @currentRecordingQR</span>
@@ -115,7 +124,7 @@
                         </div>
                     </div>
 
-                    <!-- VIDEO PLAYER & OVERLAY (HIỂN THỊ QR CAMERA) -->
+                    <!-- VIDEO -->
                     <div class="live-feed-card" style="position: relative; overflow: hidden; background: #000; border-radius: 12px; border: 2px solid #3b82f6; box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); margin-bottom: 2rem;">
                         <div class="video-wrapper" style="position: relative; width: 100%; aspect-ratio: 16/9; display: flex; justify-content: center; align-items: center; background: #000;">
 
@@ -165,7 +174,7 @@
                     else
                     {
                         <div class="text-center mt-2 text-success fw-bold animate-pulse">
-                            🤖 Đang tự động quét hình ảnh...
+                            🤖 Auto quét QR/Barcode + QR nhân viên...
                         </div>
                     }
 
@@ -184,7 +193,7 @@
                                         <tr>
                                             <th style="width:140px;">Thời gian</th>
                                             <th>Mã QR</th>
-                                            <th style="width:120px;">Hành động</th>
+                                            <th style="width:140px;">Hành động</th>
                                             <th>Trạng thái</th>
                                         </tr>
                                     </thead>
@@ -235,8 +244,6 @@
     @@keyframes zaloScan { 0% { top: 5%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 95%; opacity: 0; } }
     .animate-pulse { animation: pulse 1.5s infinite; }
     @@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-
-    video:not([paused]):not([ended]) + canvas + .play-overlay { display: none; }
 </style>
 
 @code {
@@ -312,17 +319,6 @@
 
             await LoadStations();
 
-            var user = auth.User.Identity?.Name;
-            if (!string.IsNullOrEmpty(user))
-            {
-                var s = stations.FirstOrDefault(x => x.CurrentUser?.Username == user);
-                if (s != null)
-                {
-                    occupiedStation = s;
-                    await CheckStationStatus(s.Name);
-                }
-            }
-
             StateHasChanged();
         }
 
@@ -385,40 +381,11 @@
             return;
         }
 
-        bool isRecording = !string.IsNullOrEmpty(currentRecordingQR);
-
-        bool isStopCode =
-            raw.Contains("STOP RECORDING", StringComparison.OrdinalIgnoreCase) ||
-            raw.Equals("STOP", StringComparison.OrdinalIgnoreCase) ||
-            raw.Contains("@@STOP_RECORD@@", StringComparison.OrdinalIgnoreCase);
-
-        // ✅ STOP mà chưa quay => ignore ngay trên UI để tránh bị lưu nhầm
-        if (isStopCode && !isRecording)
-        {
-            statusType = "warn";
-            statusMessage = "Không có phiên quay để dừng.";
-            AddScanLog(raw, "ignore", statusMessage);
-            await Task.Delay(120);
-            isProcessingScan = false;
-            StateHasChanged();
-            return;
-        }
-
-        // ✅ AUTO: nếu đang quay và lại thấy đúng mã đang quay => bỏ qua
-        if (scanMode == ScanSourceMode.CameraAuto && isRecording && !isStopCode)
-        {
-            if (string.Equals(raw, currentRecordingQR, StringComparison.OrdinalIgnoreCase))
-            {
-                isProcessingScan = false;
-                return;
-            }
-        }
-
         try { await JS.InvokeVoidAsync("playBeep"); } catch { }
 
         await SendScanRequest(raw, raw);
 
-        await Task.Delay(250);
+        await Task.Delay(200);
         isProcessingScan = false;
     }
 
@@ -451,7 +418,36 @@
                 if (j.TryGetProperty("action", out var a))
                     action = a.GetString() ?? "unknown";
 
-                if (action == "start")
+                // ====== NEW ACTIONS FOR EMPLOYEE QR ======
+                if (action == "station_join")
+                {
+                    statusType = "success";
+                    msg = j.TryGetProperty("message", out var m) ? (m.GetString() ?? "OK") : "Nhân viên đã vào trạm.";
+                    statusMessage = msg;
+
+                    await LoadStations();
+                    occupiedStation = stations.FirstOrDefault(x => x.Id == occupiedStation.Id) ?? occupiedStation;
+                }
+                else if (action == "station_leave")
+                {
+                    statusType = "success";
+                    msg = j.TryGetProperty("message", out var m) ? (m.GetString() ?? "OK") : "Nhân viên đã rời trạm.";
+                    statusMessage = msg;
+
+                    await LoadStations();
+                    occupiedStation = stations.FirstOrDefault(x => x.Id == occupiedStation.Id) ?? occupiedStation;
+                }
+                else if (action == "station_blocked")
+                {
+                    statusType = "warn";
+                    msg = j.TryGetProperty("message", out var m) ? (m.GetString() ?? "Trạm đang bận.") : "Trạm đang bận.";
+                    statusMessage = msg;
+
+                    await LoadStations();
+                    occupiedStation = stations.FirstOrDefault(x => x.Id == occupiedStation.Id) ?? occupiedStation;
+                }
+                // ====== RECORDING ACTIONS ======
+                else if (action == "start")
                 {
                     currentRecordingQR = j.TryGetProperty("recording_qr", out var q)
                         ? q.GetString()
@@ -459,25 +455,33 @@
 
                     statusType = "success";
                     msg = $"Đang quay: {currentRecordingQR}";
+                    statusMessage = msg;
                 }
                 else if (action == "stop")
                 {
                     currentRecordingQR = null;
                     statusType = "success";
                     msg = "Đã dừng quay.";
+                    statusMessage = msg;
                 }
                 else if (action == "ignore")
                 {
                     statusType = "info";
-                    msg = "Auto thấy lại mã đang quay → bỏ qua.";
+                    msg = j.TryGetProperty("message", out var m) ? (m.GetString() ?? "Bỏ qua.") : "Bỏ qua.";
+                    statusMessage = msg;
+                }
+                else if (action == "error")
+                {
+                    statusType = "error";
+                    msg = j.TryGetProperty("message", out var m) ? (m.GetString() ?? "Lỗi.") : "Lỗi.";
+                    statusMessage = msg;
                 }
                 else
                 {
                     statusType = "info";
                     msg = j.TryGetProperty("message", out var m) ? (m.GetString() ?? "OK") : "OK";
+                    statusMessage = msg;
                 }
-
-                statusMessage = msg;
             }
             else
             {
@@ -538,8 +542,6 @@
 
     private async Task OccupyStation(Station s)
     {
-        if (s.CurrentUserId != null) return;
-
         try
         {
             await AttachTokenToHttp();
@@ -551,6 +553,8 @@
                 await CheckStationStatus(s.Name);
                 await Task.Delay(80);
                 await InitializePlayer();
+                await LoadStations();
+                occupiedStation = stations.FirstOrDefault(x => x.Id == s.Id) ?? s;
                 StateHasChanged();
             }
         }

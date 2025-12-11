@@ -1,12 +1,15 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿// FILE: Controllers/CamerasController.cs
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WebGhiHinh.Data;
 using WebGhiHinh.Models;
 
 namespace WebGhiHinh.Controllers
 {
-    [Route("api/[controller]")] // => api/cameras
+    [Route("api/[controller]")]
     [ApiController]
+    [Authorize] // nếu muốn public thì bỏ dòng này
     public class CamerasController : ControllerBase
     {
         private readonly AppDbContext _context;
@@ -16,10 +19,7 @@ namespace WebGhiHinh.Controllers
             _context = context;
         }
 
-        // ===============================
-        // 1) Lấy danh sách camera
         // GET: api/cameras
-        // ===============================
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Camera>>> GetCameras()
         {
@@ -28,27 +28,27 @@ namespace WebGhiHinh.Controllers
                 .ToListAsync();
         }
 
-        // ===============================
-        // 1.1) Lấy 1 camera theo id (nên có để CreatedAtAction đúng)
         // GET: api/cameras/5
-        // ===============================
-        [HttpGet("{id}")]
+        [HttpGet("{id:int}")]
         public async Task<ActionResult<Camera>> GetCamera(int id)
         {
             var camera = await _context.Cameras.FindAsync(id);
             if (camera == null) return NotFound();
-
             return camera;
         }
 
-        // ===============================
-        // 2) Thêm mới camera
         // POST: api/cameras
-        // ===============================
         [HttpPost]
+        [Authorize(Roles = "admin,admin1")]
         public async Task<ActionResult<Camera>> PostCamera([FromBody] Camera camera)
         {
             if (camera == null) return BadRequest("Camera không hợp lệ.");
+
+            camera.Name = camera.Name?.Trim() ?? "";
+            camera.RtspUrl = camera.RtspUrl?.Trim() ?? "";
+
+            if (string.IsNullOrWhiteSpace(camera.Name) || string.IsNullOrWhiteSpace(camera.RtspUrl))
+                return BadRequest("Thiếu Name hoặc RtspUrl.");
 
             _context.Cameras.Add(camera);
             await _context.SaveChangesAsync();
@@ -56,40 +56,28 @@ namespace WebGhiHinh.Controllers
             return CreatedAtAction(nameof(GetCamera), new { id = camera.Id }, camera);
         }
 
-        // ===============================
-        // 3) Cập nhật camera (fix 404)
         // PUT: api/cameras/5
-        // ===============================
-        [HttpPut("{id}")]
+        [HttpPut("{id:int}")]
+        [Authorize(Roles = "admin,admin1")]
         public async Task<IActionResult> PutCamera(int id, [FromBody] Camera camera)
         {
             if (camera == null) return BadRequest("Camera không hợp lệ.");
             if (id != camera.Id) return BadRequest("ID không khớp.");
 
-            // Nếu muốn update an toàn hơn, có thể load entity rồi map
-            // Ở đây giữ kiểu update nhanh:
-            _context.Entry(camera).State = EntityState.Modified;
+            var exists = await _context.Cameras.FirstOrDefaultAsync(x => x.Id == id);
+            if (exists == null) return NotFound($"Không tìm thấy Camera có ID = {id}");
 
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!CameraExists(id))
-                    return NotFound($"Không tìm thấy Camera có ID = {id}");
+            exists.Name = camera.Name?.Trim() ?? exists.Name;
+            exists.RtspUrl = camera.RtspUrl?.Trim() ?? exists.RtspUrl;
+            exists.Description = camera.Description;
 
-                throw;
-            }
-
+            await _context.SaveChangesAsync();
             return NoContent();
         }
 
-        // ===============================
-        // 4) Xóa camera
         // DELETE: api/cameras/5
-        // ===============================
-        [HttpDelete("{id}")]
+        [HttpDelete("{id:int}")]
+        [Authorize(Roles = "admin,admin1")]
         public async Task<IActionResult> DeleteCamera(int id)
         {
             var camera = await _context.Cameras.FindAsync(id);
@@ -99,11 +87,6 @@ namespace WebGhiHinh.Controllers
             await _context.SaveChangesAsync();
 
             return NoContent();
-        }
-
-        private bool CameraExists(int id)
-        {
-            return _context.Cameras.Any(e => e.Id == id);
         }
     }
 }

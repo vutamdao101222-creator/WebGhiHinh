@@ -1,8 +1,12 @@
-﻿@* FILE: Components/Routes.razor *@
-@using WebGhiHinh.Components.Layout
+﻿@using WebGhiHinh.Components.Layout
+@using Microsoft.AspNetCore.Components.Routing
 
 <Router AppAssembly="@typeof(Program).Assembly">
     <Found Context="routeData">
+        @* LƯU Ý QUAN TRỌNG: 
+           Sử dụng @typeof(MainLayout) giúp trình biên dịch hiểu rõ đây là Type (kiểu dữ liệu),
+           tránh nhầm lẫn với tên thư mục hoặc namespace.
+        *@
         <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
@@ -10,7 +14,14 @@
     <NotFound>
         <PageTitle>Không tìm thấy</PageTitle>
         <LayoutView Layout="@typeof(MainLayout)">
-            <p role="alert">Xin lỗi, không tìm thấy địa chỉ này.</p>
+            <div class="container mt-5 text-center">
+                <h1 class="text-danger display-1">404</h1>
+                <p role="alert" class="lead">Xin lỗi, không tìm thấy trang bạn yêu cầu.</p>
+                <hr />
+                <a href="/" class="btn btn-primary btn-lg">
+                    <i class="bi bi-house-door-fill"></i> Về trang chủ
+                </a>
+            </div>
         </LayoutView>
     </NotFound>
 </Router>

@@ -1,165 +1,290 @@
 ﻿@page "/live"
-@using Microsoft.AspNetCore.Authorization
 @using WebGhiHinh.Models
 @using Microsoft.AspNetCore.Components.Authorization
-@using WebGhiHinh.Services
+@using System.Text.Json
+@using System.Net.Http.Headers
 @inject HttpClient Http
 @inject IJSRuntime JS
+@using WebGhiHinh.Services
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
 
-@* 👇 Tắt prerender để đảm bảo code chạy trên browser và lấy được URL chính xác *@
+@implements IAsyncDisposable
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 
-<PageTitle>Xem Camera Trực Tiếp</PageTitle>
+<PageTitle>Trung Tâm Giám Sát & Quét Mã</PageTitle>
 
 <div class="live-container fade-in">
     <header class="page-header">
-        <h1>🎥 Camera Trực Tiếp</h1>
-        <div class="status-badge">
-            <span class="live-dot"></span> Live
+        <div class="header-left">
+            <h1>📡 Trung Tâm Điều Hành</h1>
+            <div class="header-sub">
+                Chế độ hiện tại:
+                <span class="fw-bold @(isAutoScanMode ? "text-success" : "text-primary")">
+                    @(isAutoScanMode ? "🤖 AI AUTO SCAN (HLS)" : "📺 CHỈ XEM (Live Stream)")
+                </span>
+            </div>
         </div>
-        <!-- Hiển thị IP đang dùng để debug -->
-        <small class="text-muted" style="font-size: 0.8rem;">Stream Server: @StreamBaseUrl</small>
+        
+        <div class="header-right">
+            <button class="btn btn-sm rounded-pill px-3 me-3 @(isAutoScanMode ? "btn-outline-danger" : "btn-primary")" 
+                    @onclick="ToggleScanMode">
+                @if (isAutoScanMode) {
+                    <span>⏹ Dừng Quét (Chuyển về chế độ Xem)</span>
+                } else {
+                    <span>▶ Bật Auto Scan (Kích hoạt AI)</span>
+                }
+            </button>
+
+            <span class="status-badge">
+                <span class="live-dot"></span> Online
+            </span>
+        </div>
     </header>
 
     @if (loading)
     {
         <div class="spinner-container">
             <div class="spinner"></div>
-            <p>Đang tải danh sách camera...</p>
+            <p>Đang tải danh sách trạm...</p>
         </div>
     }
-    else if (cameras.Count == 0)
+    else if (stations.Count == 0)
     {
         <div class="empty-state">
-            <p>Chưa có camera nào được kết nối.</p>
-            <AuthorizeView Roles="admin">
-                <a href="/admin" class="btn btn-primary">Quản lý Camera</a>
-            </AuthorizeView>
+            <p>Chưa có trạm nào.</p>
+            <a href="/admin/stations" class="btn-primary">Thêm trạm</a>
         </div>
     }
     else
     {
-        <div class="camera-grid">
-            <!-- Camera Mặc định -->
-            <div class="camera-card">
-                <div class="card-header">
-                    <span class="cam-name">🔥 Cam1 (Mặc định)</span>
-                    <span class="badge">Default</span>
-                </div>
-                <div class="video-wrapper">
-                    <!-- 👇 CẬP NHẬT: Thêm allowfullscreen và allow="fullscreen" -->
-                    <iframe src="@($"{StreamBaseUrl}/cam1/")" 
-                            class="video-frame" 
-                            allow="autoplay; fullscreen" 
-                            allowfullscreen 
-                            scrolling="no">
-                    </iframe>
-                </div>
-                <div class="card-footer">
-                    <code>Mặc định</code>
-                </div>
-            </div>
-
-            <!-- Các Camera khác -->
-            @foreach (var cam in cameras)
+        <div class="station-list">
+            @foreach (var st in stations)
             {
-                <div class="camera-card">
-                    <div class="card-header">
-                        <span class="cam-name">📷 @cam.Name</span>
-                        @if (IsRecording(cam.Name))
-                        {
-                            <span class="badge-rec">REC</span>
-                        }
+                var isRec = recordingStatus.TryGetValue(st.Name, out var currentQr);
+                var stateClass = isRec ? "rec" : "ready";
+                var stateText = isRec ? "RECORDING" : "READY";
+                var userText = st.CurrentUser == null ? "---" : (st.CurrentUser.FullName ?? st.CurrentUser.Username);
+
+                <section class="station-card @(isRec ? "border-danger" : "")">
+                    <div class="station-header">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="station-title">
+                                <span class="station-id">@st.Name</span>
+                            </div>
+                            <div class="user-badge">👤 @userText</div>
+                        </div>
+                        <div class="station-state-pill @stateClass">@stateText</div>
                     </div>
-                    <div class="video-wrapper">
-                        <!-- 👇 CẬP NHẬT: Thêm allowfullscreen và allow="fullscreen" -->
-                        <iframe src="@($"{StreamBaseUrl}/{cam.Name}/")" 
-                                class="video-frame" 
-                                allow="autoplay; fullscreen" 
-                                allowfullscreen 
-                                scrolling="no">
-                        </iframe>
+
+                    <div class="station-body">
+                        <div class="camera-block">
+                            <div class="cam-label">Overview</div>
+                            <div class="video-wrapper">
+                                @if (!string.IsNullOrWhiteSpace(st.OverviewCamera?.RtspUrl))
+                                {
+                                    <iframe class="video-frame" scrolling="no"
+                                            src="@($"{StreamBaseUrl}/{st.OverviewCamera.Name}/")"
+                                            allow="autoplay; fullscreen"></iframe>
+                                }
+                                else { <div class="no-camera">No Signal</div> }
+                                
+                                <div class="overlay overlay-top-left"><span class="overlay-tag">CAM 01</span></div>
+                                @if (isRec) {
+                                    <div class="overlay overlay-top-right"><div class="qr-text">@currentQr</div></div>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="camera-block @(isRec && isAutoScanMode ? "rec-active" : "")">
+                            <div class="d-flex justify-content-between">
+                                <div class="cam-label">QR Cam</div>
+                                @if(isAutoScanMode) {
+                                    <small class="text-success fw-bold animate-pulse" style="font-size: 0.7rem">⚡ SCANNING...</small>
+                                } else {
+                                    <small class="text-muted" style="font-size: 0.7rem">👁 VIEW ONLY</small>
+                                }
+                            </div>
+
+                            <div class="video-wrapper" style="position:relative;">
+                                @if (!string.IsNullOrWhiteSpace(st.QrCamera?.RtspUrl))
+                                {
+                                    @if (isAutoScanMode)
+                                    {
+                                        /* === CHẾ ĐỘ SCAN: Dùng Video + Canvas để JS xử lý === */
+                                        <video id="video-@st.Id" class="video-frame" muted playsinline autoplay></video>
+                                        <canvas id="canvas-@st.Id" style="display:none;"></canvas>
+                                        
+                                        <div class="qr-corner qr-corner-tl"></div>
+                                        <div class="qr-corner qr-corner-tr"></div>
+                                        <div class="qr-corner qr-corner-bl"></div>
+                                        <div class="qr-corner qr-corner-br"></div>
+                                    }
+                                    else
+                                    {
+                                        /* === CHẾ ĐỘ XEM: Dùng Iframe (Fix lỗi đen màn hình) === */
+                                        <iframe class="video-frame" scrolling="no"
+                                            src="@($"{StreamBaseUrl}/{st.QrCamera.Name}/")"
+                                            allow="autoplay; fullscreen"></iframe>
+                                    }
+                                }
+                                else { <div class="no-camera">No QR Cam</div> }
+
+                                <div class="overlay overlay-top-left"><span class="overlay-tag">CAM 02</span></div>
+                            </div>
+                            <div class="cam-footer"><code>@st.QrCamera?.RtspUrl</code></div>
+                        </div>
                     </div>
-                    <div class="card-footer">
-                        <code>@cam.RtspUrl</code>
-                    </div>
-                </div>
+                </section>
             }
         </div>
     }
 </div>
 
-@code {
-    private List<Camera> cameras = new();
-    private Dictionary<string, string> recordingStatus = new();
-    private bool loading = true;
-    private System.Threading.Timer? timer;
+<style>
+    /* Visual Styles */
+    .qr-corner { position: absolute; width: 20px; height: 20px; border-color: rgba(255,255,255,0.6); border-style: solid; z-index: 10; pointer-events: none; }
+    .qr-corner-tl { top: 10px; left: 10px; border-width: 2px 0 0 2px; }
+    .qr-corner-tr { top: 10px; right: 10px; border-width: 2px 2px 0 0; }
+    .qr-corner-bl { bottom: 10px; left: 10px; border-width: 0 0 2px 2px; }
+    .qr-corner-br { bottom: 10px; right: 10px; border-width: 0 2px 2px 0; }
+    
+    .station-card.border-danger { border-color: #fca5a5; box-shadow: 0 0 15px rgba(239, 68, 68, 0.15); transition: all 0.3s; }
+    .rec-active .qr-corner { border-color: #ef4444; }
+    .animate-pulse { animation: pulse 1.5s infinite; }
+    @@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    .user-badge { background: #f3f4f6; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; color: #374151; font-weight: 600; }
+</style>
 
-    // 👇 Biến lưu địa chỉ stream (mặc định là localhost để phòng hờ)
+@code {
+    private List<Station> stations = new();
+    private Dictionary<string, string> recordingStatus = new();
+    
+    // Mặc định là FALSE (Chế độ xem) để đảm bảo không bị đen màn hình lúc đầu
+    // Người dùng bấm nút mới chuyển sang TRUE (Chế độ quét)
+    private bool isAutoScanMode = false; 
+    
+    private bool loading = true;
     private string StreamBaseUrl = "http://localhost:8889";
+    private string HlsBaseUrl = "http://localhost:8888";
+    
+    private System.Threading.Timer? statusTimer;
+    private DotNetObjectReference<LiveCameraPage>? objRef;
 
     protected override void OnInitialized()
     {
-        // 👇 LOGIC TỰ ĐỘNG LẤY IP:
-        // Khi người dùng truy cập http://192.168.1.10:3000, Nav.BaseUri sẽ chứa IP đó.
-        // Ta lấy IP đó và ghép với cổng 8889 của MediaMTX.
-        try
-        {
+        try { 
             var uri = new Uri(Nav.BaseUri);
-            // uri.Host sẽ là "192.168.1.10" hoặc tên miền
             StreamBaseUrl = $"http://{uri.Host}:8889";
-        }
-        catch
-        {
-            // Nếu lỗi thì giữ nguyên localhost
-        }
+            HlsBaseUrl = $"http://{uri.Host}:8888";
+        } catch {}
+        objRef = DotNetObjectReference.Create(this);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            if (AuthStateProvider is CustomAuthStateProvider customAuth)
-            {
-                await customAuth.LoadUserFromLocalStorage();
-            }
-
-            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            if (!authState.User.Identity.IsAuthenticated)
+            var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            if (!auth.User.Identity?.IsAuthenticated ?? false)
             {
                 Nav.NavigateTo("/login");
                 return;
             }
 
-            await LoadCameras();
-            timer = new System.Threading.Timer(async _ => await CheckRecordingStatus(), null, 0, 5000);
+            await LoadStations();
+            statusTimer = new System.Threading.Timer(async _ => await CheckRecordingStatus(), null, 0, 1000);
         }
     }
 
-    private async Task LoadCameras()
+    // Hàm chuyển đổi chế độ
+    private async Task ToggleScanMode()
+    {
+        isAutoScanMode = !isAutoScanMode;
+        
+        // Nếu tắt Scan -> Dừng JS
+        if (!isAutoScanMode)
+        {
+            try { await JS.InvokeVoidAsync("stopHlsScan", null); } catch {}
+        }
+        
+        StateHasChanged();
+
+        // Nếu bật Scan -> Đợi DOM render thẻ <video> rồi khởi động JS
+        if (isAutoScanMode)
+        {
+            await Task.Delay(500); 
+            await InitializeAllScanners();
+        }
+    }
+
+    private async Task LoadStations()
     {
         try
         {
+            loading = true;
+            StateHasChanged();
             await AttachToken();
-            cameras = await Http.GetFromJsonAsync<List<Camera>>("api/cameras") ?? new();
+            stations = await Http.GetFromJsonAsync<List<Station>>("api/station") ?? new();
+            stations = stations.OrderBy(s => s.Name).ToList();
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Lỗi: {ex.Message}");
-            if (ex.Message.Contains("401"))
-            {
-                Nav.NavigateTo("/login");
-            }
-        }
+        catch (Exception ex) { Console.WriteLine(ex.Message); }
         finally
         {
             loading = false;
-            await InvokeAsync(StateHasChanged);
+            StateHasChanged();
         }
     }
 
+    private async Task InitializeAllScanners()
+    {
+        // Chỉ chạy khi đang ở chế độ Auto Scan
+        if (!isAutoScanMode) return;
+
+        foreach (var st in stations)
+        {
+            if (st.QrCamera != null && !string.IsNullOrEmpty(st.QrCamera.RtspUrl))
+            {
+                string hlsUrl = $"{HlsBaseUrl}/{st.QrCamera.Name}/index.m3u8";
+                try {
+                    await JS.InvokeVoidAsync("startHlsScanByElementId", 
+                        hlsUrl, 
+                        $"video-{st.Id}", 
+                        $"canvas-{st.Id}", 
+                        objRef, 
+                        true 
+                    );
+                } catch {}
+            }
+        }
+    }
+
+    // Hàm nhận mã từ JS (Giống ScanningPage)
+    [JSInvokable]
+    public async Task ProcessScan(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return;
+
+        try 
+        {
+            await AttachToken();
+            
+            // Gửi mã lên API để xử lý (Start/Stop Recording)
+            // Lưu ý: Backend cần logic xử lý xem mã này thuộc về trạm nào đang active
+            // Hoặc đơn giản là gửi broadcast
+            
+            var payload = new 
+            { 
+                QrCode = code, 
+                Source = "LiveDashboard",
+                Mode = 1 
+            };
+            
+            await Http.PostAsJsonAsync("api/record/scan", payload);
+        } 
+        catch (Exception ex) { Console.WriteLine($"Scan Error: {ex.Message}"); }
+    }
+    
     private async Task CheckRecordingStatus()
     {
         try
@@ -175,29 +300,23 @@
         catch { }
     }
 
-    private bool IsRecording(string camName)
-    {
-        return recordingStatus.Keys.Any(k => k.Contains(camName, StringComparison.OrdinalIgnoreCase));
-    }
-
     private async Task AttachToken()
     {
-        try
-        {
-            var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
-            if (!string.IsNullOrEmpty(token))
-            {
-                Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error retrieving token: {ex.Message}");
-        }
+        var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
+        if (!string.IsNullOrEmpty(token))
+            Http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+    }
+    
+    private static string GetCameraIp(string? rtsp)
+    {
+        if (string.IsNullOrWhiteSpace(rtsp)) return "";
+        try { return new Uri(rtsp.Replace("rtsp://", "http://")).Host; } catch { return ""; }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        timer?.Dispose();
+        statusTimer?.Dispose();
+        objRef?.Dispose();
+        try { await JS.InvokeVoidAsync("stopHlsScan", null); } catch {}
     }
 }

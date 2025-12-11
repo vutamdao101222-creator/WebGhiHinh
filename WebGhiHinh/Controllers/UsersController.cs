@@ -3,12 +3,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WebGhiHinh.Data;
 using WebGhiHinh.Models;
+using QRCoder; // 👈 phải có dòng này
 
 namespace WebGhiHinh.Controllers
 {
     [Route("api/users")]
     [ApiController]
-    [Authorize(Roles = "admin")] // Chỉ Admin mới được truy cập
+    [Authorize(Roles = "admin,admin1")]
     public class UsersController : ControllerBase
     {
         private readonly AppDbContext _context;
@@ -18,11 +19,14 @@ namespace WebGhiHinh.Controllers
             _context = context;
         }
 
-        // 1. Lấy danh sách User (GET: api/users)
+        // =========================================================
+        // 1) LIST USERS
+        // =========================================================
         [HttpGet]
         public async Task<IActionResult> GetUsers()
         {
             var users = await _context.Users
+                .OrderBy(u => u.Username)
                 .Select(u => new UserDto
                 {
                     Id = u.Id,
@@ -30,105 +34,268 @@ namespace WebGhiHinh.Controllers
                     FullName = u.FullName,
                     EmployeeCode = u.EmployeeCode,
                     Address = u.Address,
-                    Role = u.Role,
-                    // Không trả về PasswordHash để bảo mật
+                    Role = u.Role
                 })
                 .ToListAsync();
 
             return Ok(users);
         }
 
-        // 2. Tạo User mới (POST: api/users)
+        // =========================================================
+        // 2) GET ONE USER
+        // =========================================================
+        [HttpGet("{id:int}")]
+        public async Task<IActionResult> GetUser(int id)
+        {
+            var u = await _context.Users.FirstOrDefaultAsync(x => x.Id == id);
+            if (u == null) return NotFound(new { message = "Không tìm thấy người dùng." });
+
+            return Ok(new UserDto
+            {
+                Id = u.Id,
+                Username = u.Username,
+                FullName = u.FullName,
+                EmployeeCode = u.EmployeeCode,
+                Address = u.Address,
+                Role = u.Role
+            });
+        }
+
+        // =========================================================
+        // 3) CREATE USER
+        // =========================================================
         [HttpPost]
         public async Task<IActionResult> CreateUser([FromBody] CreateUserDto request)
         {
-            if (await _context.Users.AnyAsync(u => u.Username == request.Username))
+            if (request == null || string.IsNullOrWhiteSpace(request.Username))
+                return BadRequest(new { message = "Request không hợp lệ." });
+
+            var username = request.Username.Trim();
+
+            if (await _context.Users.AnyAsync(u => u.Username == username))
+                return BadRequest(new { message = "Tên đăng nhập đã tồn tại." });
+
+            if (!string.IsNullOrWhiteSpace(request.EmployeeCode))
             {
-                return BadRequest("Tên đăng nhập đã tồn tại.");
+                var ec = request.EmployeeCode.Trim();
+                if (await _context.Users.AnyAsync(u => u.EmployeeCode == ec))
+                    return BadRequest(new { message = "EmployeeCode đã tồn tại." });
             }
 
             var newUser = new User
             {
-                Username = request.Username,
-                PasswordHash = request.Password, // Lưu ý: Nên mã hóa trong thực tế
-                FullName = request.FullName,
-                EmployeeCode = request.EmployeeCode,
-                Address = request.Address,
-                Role = request.Role ?? "user"
+                Username = username,
+                PasswordHash = request.Password ?? "",
+                FullName = request.FullName?.Trim(),
+                EmployeeCode = request.EmployeeCode?.Trim(),
+                Address = request.Address?.Trim(),
+                Role = string.IsNullOrWhiteSpace(request.Role) ? "user" : request.Role!.Trim()
             };
 
             _context.Users.Add(newUser);
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "Tạo tài khoản thành công" });
+            return Ok(new
+            {
+                message = "✅ Tạo tài khoản thành công",
+                id = newUser.Id,
+                employeeQrPayload = BuildEmployeePayload(newUser)
+            });
         }
 
-        // 3. Cập nhật User (PUT: api/users/{id})
-        [HttpPut("{id}")]
+        // =========================================================
+        // 4) UPDATE USER
+        // =========================================================
+        [HttpPut("{id:int}")]
         public async Task<IActionResult> UpdateUser(int id, [FromBody] UpdateUserDto request)
         {
+            if (request == null)
+                return BadRequest(new { message = "Request không hợp lệ." });
+
             var user = await _context.Users.FindAsync(id);
-            if (user == null) return NotFound("Không tìm thấy người dùng.");
+            if (user == null) return NotFound(new { message = "Không tìm thấy người dùng." });
 
-            user.FullName = request.FullName;
-            user.EmployeeCode = request.EmployeeCode;
-            user.Address = request.Address;
-            user.Role = request.Role;
+            if (!string.IsNullOrWhiteSpace(request.EmployeeCode))
+            {
+                var ec = request.EmployeeCode.Trim();
+                var exists = await _context.Users.AnyAsync(u => u.EmployeeCode == ec && u.Id != id);
+                if (exists) return BadRequest(new { message = "EmployeeCode đã tồn tại." });
 
-            // Nếu có nhập mật khẩu mới thì cập nhật, không thì giữ nguyên
+                user.EmployeeCode = ec;
+            }
+            else
+            {
+                user.EmployeeCode = null;
+            }
+
+            user.FullName = request.FullName?.Trim();
+            user.Address = request.Address?.Trim();
+            user.Role = request.Role?.Trim();
+
             if (!string.IsNullOrEmpty(request.Password))
             {
                 user.PasswordHash = request.Password;
             }
 
             await _context.SaveChangesAsync();
-            return Ok(new { message = "Cập nhật thành công" });
+
+            return Ok(new
+            {
+                message = "✅ Cập nhật thành công",
+                employeeQrPayload = BuildEmployeePayload(user)
+            });
         }
 
-        // 4. Xóa User (DELETE: api/users/{id})
-        [HttpDelete("{id}")]
+        // =========================================================
+        // 5) DELETE USER
+        // =========================================================
+        [HttpDelete("{id:int}")]
         public async Task<IActionResult> DeleteUser(int id)
         {
             var user = await _context.Users.FindAsync(id);
-            if (user == null) return NotFound();
-
-            // Chặn không cho xóa chính mình (nếu cần)
-            // var currentUserName = User.Identity.Name;
-            // if (user.Username == currentUserName) return BadRequest("Không thể xóa chính mình.");
+            if (user == null) return NotFound(new { message = "Không tìm thấy người dùng." });
 
             _context.Users.Remove(user);
             await _context.SaveChangesAsync();
-            return Ok(new { message = "Đã xóa người dùng" });
+
+            return Ok(new { message = "🗑️ Đã xóa người dùng" });
+        }
+
+        // =========================================================
+        // 6) GET EMPLOYEE QR PAYLOAD BY USER ID (STRING)
+        // =========================================================
+        [HttpGet("{id:int}/employee-qr-payload")]
+        public async Task<IActionResult> GetEmployeeQrPayload(int id)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(x => x.Id == id);
+            if (user == null) return NotFound(new { message = "Không tìm thấy người dùng." });
+
+            var payload = BuildEmployeePayload(user);
+            if (payload == null)
+                return BadRequest(new { message = "User chưa có EmployeeCode để tạo QR." });
+
+            return Ok(new
+            {
+                user.Id,
+                user.Username,
+                user.FullName,
+                user.EmployeeCode,
+                payload
+            });
+        }
+
+        // =========================================================
+        // 7) GET EMPLOYEE QR PAYLOAD BY CODE/USERNAME (STRING)
+        // =========================================================
+        [HttpPost("employee-qr-payload")]
+        public async Task<IActionResult> GetEmployeeQrPayloadByKey([FromBody] EmployeeQrLookupDto req)
+        {
+            if (req == null)
+                return BadRequest(new { message = "Request không hợp lệ." });
+
+            var employeeCode = req.EmployeeCode?.Trim();
+            var username = req.Username?.Trim();
+
+            if (string.IsNullOrWhiteSpace(employeeCode) && string.IsNullOrWhiteSpace(username))
+                return BadRequest(new { message = "Cần employeeCode hoặc username." });
+
+            User? user = null;
+
+            if (!string.IsNullOrWhiteSpace(employeeCode))
+            {
+                user = await _context.Users.FirstOrDefaultAsync(u => u.EmployeeCode == employeeCode);
+            }
+
+            if (user == null && !string.IsNullOrWhiteSpace(username))
+            {
+                user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+            }
+
+            if (user == null)
+                return NotFound(new { message = "Không tìm thấy người dùng." });
+
+            var payload = BuildEmployeePayload(user);
+            if (payload == null)
+                return BadRequest(new { message = "User chưa có EmployeeCode để tạo QR." });
+
+            return Ok(new
+            {
+                user.Id,
+                user.Username,
+                user.FullName,
+                user.EmployeeCode,
+                payload
+            });
+        }
+
+        // =========================================================
+        // 8) GET EMPLOYEE QR IMAGE (PNG)
+        // GET: api/users/{id}/employee-qr-image
+        // =========================================================
+        [HttpGet("{id:int}/employee-qr-image")]
+        public async Task<IActionResult> GetEmployeeQrImage(int id)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(x => x.Id == id);
+            if (user == null) return NotFound(new { message = "Không tìm thấy người dùng." });
+
+            var payload = BuildEmployeePayload(user);
+            if (string.IsNullOrWhiteSpace(payload))
+                return BadRequest(new { message = "User chưa có EmployeeCode để tạo QR." });
+
+            // Tạo QR PNG bằng QRCoder
+            using var generator = new QRCodeGenerator();
+            using var data = generator.CreateQrCode(payload, QRCodeGenerator.ECCLevel.Q);
+            using var qrCode = new PngByteQRCode(data);
+            var bytes = qrCode.GetGraphic(20); // 20 = size module
+
+            return File(bytes, "image/png");
+        }
+
+        // =========================================================
+        // PRIVATE
+        // =========================================================
+        private static string? BuildEmployeePayload(User user)
+        {
+            if (user == null) return null;
+            if (string.IsNullOrWhiteSpace(user.EmployeeCode)) return null;
+
+            return $"EMP:{user.EmployeeCode.Trim()}";
         }
     }
 
-    // --- DTO Classes ---
+    // DTOs
     public class UserDto
     {
         public int Id { get; set; }
-        public string Username { get; set; }
-        public string FullName { get; set; }
-        public string EmployeeCode { get; set; }
-        public string Address { get; set; }
-        public string Role { get; set; }
+        public string Username { get; set; } = "";
+        public string? FullName { get; set; }
+        public string? EmployeeCode { get; set; }
+        public string? Address { get; set; }
+        public string? Role { get; set; }
     }
 
     public class CreateUserDto
     {
-        public string Username { get; set; }
-        public string Password { get; set; }
-        public string FullName { get; set; }
-        public string EmployeeCode { get; set; }
-        public string Address { get; set; }
-        public string Role { get; set; }
+        public string Username { get; set; } = "";
+        public string? Password { get; set; }
+        public string? FullName { get; set; }
+        public string? EmployeeCode { get; set; }
+        public string? Address { get; set; }
+        public string? Role { get; set; }
     }
 
     public class UpdateUserDto
     {
-        public string FullName { get; set; }
-        public string EmployeeCode { get; set; }
-        public string Address { get; set; }
-        public string Role { get; set; }
-        public string? Password { get; set; } // Cho phép null nếu không đổi pass
+        public string? FullName { get; set; }
+        public string? EmployeeCode { get; set; }
+        public string? Address { get; set; }
+        public string? Role { get; set; }
+        public string? Password { get; set; }
+    }
+
+    public class EmployeeQrLookupDto
+    {
+        public string? EmployeeCode { get; set; }
+        public string? Username { get; set; }
     }
 }
