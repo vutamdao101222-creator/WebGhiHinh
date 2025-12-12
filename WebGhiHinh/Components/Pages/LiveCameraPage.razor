@@ -1,46 +1,40 @@
-﻿@* FILE: Components/Pages/LiveCameraPage.razor *@
-@page "/live"
-
-@using WebGhiHinh.Models
+﻿@page "/live"
 @using Microsoft.AspNetCore.Components.Authorization
-@using System.Net.Http.Headers
 @using Microsoft.JSInterop
+@using System.Net.Http.Headers
+@using WebGhiHinh.Models
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
-
 @implements IAsyncDisposable
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
-
-<PageTitle>Trung Tâm Giám Sát & Quét Mã</PageTitle>
 
 <div class="live-container fade-in">
     <header class="page-header">
         <div class="header-left">
             <h1>📡 Trung Tâm Điều Hành</h1>
             <div class="header-sub">
-                Chế độ hiện tại:
+                Chế độ:
                 <span class="fw-bold @(isAutoScanMode ? "text-success" : "text-primary")">
-                    @(isAutoScanMode ? "🤖 AI AUTO SCAN (HLS)" : "📺 CHỈ XEM (Live Stream)")
+                    @(isAutoScanMode ? "🤖 SERVER AUTO SCAN" : "📺 CHỈ XEM (Live Stream)")
                 </span>
             </div>
         </div>
 
         <div class="header-right">
-            <button class="btn btn-sm rounded-pill px-3 me-3 @(isAutoScanMode ? "btn-outline-danger" : "btn-primary")"
+            <button class="btn btn-sm rounded-pill px-4 py-2 fw-bold @(isAutoScanMode ? "btn-danger" : "btn-primary")"
                     @onclick="ToggleScanMode">
                 @if (isAutoScanMode)
                 {
-                    <span>⏹ Dừng Quét (Chuyển về chế độ Xem)</span>
+                    <span>⏹ Dừng Overlay</span>
                 }
                 else
                 {
-                    <span>▶ Bật Auto Scan (Kích hoạt AI)</span>
+                    <span>▶ Bật Overlay</span>
                 }
             </button>
-
-            <span class="status-badge">
+            <span class="status-badge ms-3">
                 <span class="live-dot"></span> Online
             </span>
         </div>
@@ -50,390 +44,166 @@
     {
         <div class="spinner-container">
             <div class="spinner"></div>
-            <p>Đang tải danh sách trạm...</p>
+            <p>Đang tải dữ liệu...</p>
         </div>
     }
     else if (stations.Count == 0)
     {
         <div class="empty-state">
             <p>Chưa có trạm nào.</p>
-            <a href="/admin/stations" class="btn btn-primary">Thêm trạm</a>
         </div>
     }
     else
     {
-        <div class="station-list">
+        <div class="grid-layout">
             @foreach (var st in stations)
             {
-                var isRec = recordingStatus.TryGetValue(st.Name, out var currentQr);
-                var stateClass = isRec ? "rec" : "ready";
-                var stateText = isRec ? "RECORDING" : "READY";
+                var hasRec = recordingStatus.TryGetValue(st.Name, out var currentQr);
                 var userText = st.CurrentUser == null
                     ? "---"
-                    : (st.CurrentUser.FullName ?? st.CurrentUser.Username);
+                    : st.CurrentUser.FullName ?? st.CurrentUser.Username;
 
-                <section class="station-card @(isRec ? "border-danger" : "")">
-                    <div class="station-header">
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="station-title">
-                                <span class="station-id">@st.Name</span>
-                            </div>
-                            <div class="user-badge">👤 @userText</div>
+                overlayByStation.TryGetValue(st.Name, out var ov);
+
+                <div class="station-card @(hasRec ? "recording-border" : "")">
+                    <div class="card-header-custom">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="station-name">@st.Name</span>
+                            <span class="badge bg-light text-dark border">👤 @userText</span>
                         </div>
-                        <div class="station-state-pill @stateClass">@stateText</div>
+                        <div>
+                            @if (hasRec)
+                            {
+                                <span class="badge bg-danger animate-pulse">
+                                    🔴 REC: @currentQr
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">Ready</span>
+                            }
+                        </div>
                     </div>
 
-                    <div class="station-body">
-                        <!-- OVERVIEW CAM -->
-                        <div class="camera-block">
+                    <div class="cams-row">
+                        <!-- Overview cam -->
+                        <div class="cam-wrapper">
                             <div class="cam-label">Overview</div>
-                            <div class="video-wrapper">
-                                @if (!string.IsNullOrWhiteSpace(st.OverviewCamera?.RtspUrl))
-                                {
-                                    <iframe class="video-frame"
-                                            scrolling="no"
-                                            src="@($"{StreamBaseUrl}/{st.OverviewCamera.Name}/")"
-                                            allow="autoplay; fullscreen"></iframe>
-                                }
-                                else
-                                {
-                                    <div class="no-camera">No Signal</div>
-                                }
-
-                                <div class="overlay overlay-top-left">
-                                    <span class="overlay-tag">CAM 01</span>
-                                </div>
-
-                                @if (isRec && !string.IsNullOrWhiteSpace(currentQr))
-                                {
-                                    <div class="overlay overlay-top-right">
-                                        <div class="qr-text">@currentQr</div>
-                                    </div>
-                                }
-                            </div>
+                            @if (st.OverviewCamera?.RtspUrl != null)
+                            {
+                                <iframe class="video-fill"
+                                        scrolling="no"
+                                        src="@($"{StreamBaseUrl}/{st.OverviewCamera.Name}/")">
+                                </iframe>
+                            }
+                            else
+                            {
+                                <div class="no-signal">No Signal</div>
+                            }
                         </div>
 
-                        <!-- QR CAM -->
-                        <div class="camera-block @(isRec && isAutoScanMode ? "rec-active" : "")">
-                            <div class="d-flex justify-content-between">
+                        <!-- QR cam -->
+                        <div class="cam-wrapper">
+                            <div class="d-flex justify-content-between cam-label-row">
                                 <div class="cam-label">QR Cam</div>
                                 @if (isAutoScanMode)
                                 {
-                                    <small class="text-success fw-bold animate-pulse" style="font-size:0.7rem">
-                                        ⚡ SCANNING...
-                                    </small>
-                                }
-                                else
-                                {
-                                    <small class="text-muted" style="font-size:0.7rem">
-                                        👁 VIEW ONLY
-                                    </small>
+                                    <span class="text-success small fw-bold animate-pulse">
+                                        ⚡ SERVER SCAN
+                                    </span>
                                 }
                             </div>
 
-                            <div class="video-wrapper" style="position:relative;">
-                                @if (!string.IsNullOrWhiteSpace(st.QrCamera?.RtspUrl))
+                            <div class="scan-container-relative">
+                                @if (st.QrCamera?.RtspUrl != null)
                                 {
-                                    @if (isAutoScanMode)
-                                    {
-                                        <!-- CHẾ ĐỘ SCAN: HLS + VIDEO + CANVAS -->
-                                        <video id="video-@st.Id" class="video-frame" muted playsinline autoplay></video>
-                                        <canvas id="canvas-@st.Id" style="position:absolute; inset:0;"></canvas>
+                                    <!-- Chỉ phát video, không decode ở client -->
+                                    <iframe class="video-fill"
+                                            scrolling="no"
+                                            src="@($"{StreamBaseUrl}/{st.QrCamera.Name}/")">
+                                    </iframe>
 
-                                        <div class="qr-corner qr-corner-tl"></div>
-                                        <div class="qr-corner qr-corner-tr"></div>
-                                        <div class="qr-corner qr-corner-bl"></div>
-                                        <div class="qr-corner qr-corner-br"></div>
-                                    }
-                                    else
+                                    <!-- Overlay được vẽ từ dữ liệu server (SignalR -> Blazor) -->
+                                    @if (ov is not null && isAutoScanMode)
                                     {
-                                        <!-- CHẾ ĐỘ XEM: IFRAME (tránh đen màn hình) -->
-                                        <iframe class="video-frame"
-                                                scrolling="no"
-                                                src="@($"{StreamBaseUrl}/{st.QrCamera.Name}/")"
-                                                allow="autoplay; fullscreen"></iframe>
+                                        <div class="qr-overlay-root">
+                                            <div class="qr-overlay-box"
+                                                 style="
+                                                    left:@(ov.X * 100)%;
+                                                    top:@(ov.Y * 100)%;
+                                                    width:@(ov.W * 100)%;
+                                                    height:@(ov.H * 100)%;">
+                                            </div>
+                                            <div class="qr-overlay-label">
+                                                @ov.Code
+                                            </div>
+                                        </div>
                                     }
                                 }
                                 else
                                 {
-                                    <div class="no-camera">No QR Cam</div>
+                                    <div class="no-signal">No QR Cam</div>
                                 }
-
-                                <div class="overlay overlay-top-left">
-                                    <span class="overlay-tag">CAM 02</span>
-                                </div>
-                            </div>
-
-                            <div class="cam-footer">
-                                <code>@st.QrCamera?.RtspUrl</code>
                             </div>
                         </div>
                     </div>
-                </section>
+
+                    @if (scanLogs.TryGetValue(st.Name, out var logs) && logs.Any())
+                    {
+                        var lastLog = logs.First();
+                        <div class="mini-log">
+                            <small class="text-muted">
+                                @lastLog.Time.ToString("HH:mm:ss"):
+                            </small>
+                            <span class="fw-bold">@lastLog.QrCode</span>
+                            <span class="badge @(lastLog.Action == "error" ? "bg-danger" : "bg-info")">
+                                @lastLog.Message
+                            </span>
+                        </div>
+                    }
+                </div>
             }
         </div>
     }
 </div>
 
-<style>
-    .live-container {
-        padding: 1.5rem 2rem;
-    }
-
-    .page-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 1.5rem;
-    }
-
-    .header-sub {
-        font-size: 0.9rem;
-        color: #4b5563;
-    }
-
-    .status-badge {
-        background: #fee2e2;
-        color: #b91c1c;
-        padding: 4px 10px;
-        border-radius: 999px;
-        font-size: 0.8rem;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-    }
-
-    .live-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        background: #ef4444;
-        box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.5);
-    }
-
-    .station-list {
-        display: flex;
-        flex-direction: column;
-        gap: 1.25rem;
-    }
-
-    .station-card {
-        border-radius: 10px;
-        border: 1px solid #e5e7eb;
-        padding: 1rem 1.25rem;
-        background: #ffffff;
-        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
-    }
-
-    .station-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 0.75rem;
-    }
-
-    .station-id {
-        font-weight: 700;
-        font-size: 1.05rem;
-        color: #111827;
-    }
-
-    .station-state-pill {
-        padding: 3px 10px;
-        border-radius: 999px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: white;
-    }
-
-    .station-state-pill.ready {
-        background: #16a34a;
-    }
-
-    .station-state-pill.rec {
-        background: #dc2626;
-    }
-
-    .station-body {
-        display: grid;
-        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-        gap: 0.75rem;
-    }
-
-    .camera-block {
-        border-radius: 8px;
-        border: 1px solid #e5e7eb;
-        padding: 0.5rem;
-        background: #f9fafb;
-    }
-
-    .camera-block.rec-active {
-        border-color: #fecaca;
-        box-shadow: 0 0 0 1px #fecaca;
-    }
-
-    .cam-label {
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: #4b5563;
-        margin-bottom: 0.25rem;
-    }
-
-    .video-wrapper {
-        position: relative;
-        background: #000;
-        border-radius: 6px;
-        overflow: hidden;
-    }
-
-    .video-frame {
-        width: 100%;
-        height: 260px;
-        border: none;
-        display: block;
-        background: #000;
-    }
-
-    .no-camera {
-        height: 260px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #9ca3af;
-        font-size: 0.9rem;
-        background: repeating-linear-gradient(
-            45deg,
-            #e5e7eb,
-            #e5e7eb 10px,
-            #f3f4f6 10px,
-            #f3f4f6 20px
-        );
-    }
-
-    .overlay {
-        position: absolute;
-        z-index: 5;
-        pointer-events: none;
-    }
-
-    .overlay-top-left {
-        top: 6px;
-        left: 6px;
-    }
-
-    .overlay-top-right {
-        top: 6px;
-        right: 6px;
-    }
-
-    .overlay-tag {
-        background: rgba(0, 0, 0, 0.65);
-        color: #e5e7eb;
-        font-size: 0.7rem;
-        padding: 2px 6px;
-        border-radius: 999px;
-        letter-spacing: 0.05em;
-    }
-
-    .qr-text {
-        background: rgba(15, 23, 42, 0.72);
-        color: #fef3c7;
-        font-size: 0.75rem;
-        padding: 4px 8px;
-        border-radius: 6px;
-        max-width: 220px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .cam-footer {
-        margin-top: 4px;
-        font-size: 0.7rem;
-        color: #9ca3af;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .spinner-container,
-    .empty-state {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 3rem 1rem;
-        color: #6b7280;
-    }
-
-    .spinner {
-        width: 32px;
-        height: 32px;
-        border: 3px solid #e5e7eb;
-        border-top-color: #3b82f6;
-        border-radius: 999px;
-        animation: spin 0.6s linear infinite;
-        margin-bottom: 0.5rem;
-    }
-
-    .user-badge {
-        background: #f3f4f6;
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 0.8rem;
-        color: #374151;
-        font-weight: 600;
-    }
-
-    .station-card.border-danger {
-        border-color: #fca5a5;
-        box-shadow: 0 0 15px rgba(239, 68, 68, 0.12);
-    }
-
-    .qr-corner {
-        position: absolute;
-        width: 20px;
-        height: 20px;
-        border-color: rgba(255, 255, 255, 0.8);
-        border-style: solid;
-        z-index: 10;
-        pointer-events: none;
-    }
-
-    .qr-corner-tl { top: 10px; left: 10px; border-width: 2px 0 0 2px; }
-    .qr-corner-tr { top: 10px; right: 10px; border-width: 2px 2px 0 0; }
-    .qr-corner-bl { bottom: 10px; left: 10px; border-width: 0 0 2px 2px; }
-    .qr-corner-br { bottom: 10px; right: 10px; border-width: 0 2px 2px 0; }
-
-      .animate-pulse { animation: pulse 1.5s infinite; }
-
-    @@keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0.45; }
-        100% { opacity: 1; }
-    }
-
-    @@keyframes spin {
-        to { transform: rotate(360deg); }
-    }
-
-</style>
-
 @code {
     private List<Station> stations = new();
     private Dictionary<string, string> recordingStatus = new();
+    private Dictionary<string, List<ScanLogEntry>> scanLogs = new();
 
-    // FALSE = xem, TRUE = auto scan
-    private bool isAutoScanMode = false;
+    // Overlay mỗi trạm
+    private class ScanOverlayInfo
+    {
+        public string Code { get; set; } = "";
+        public double X { get; set; }
+        public double Y { get; set; }
+        public double W { get; set; }
+        public double H { get; set; }
+        public DateTime Time { get; set; }
+    }
+
+    private readonly Dictionary<string, ScanOverlayInfo> overlayByStation = new();
 
     private bool loading = true;
+    private bool isAutoScanMode = true;   // server luôn scan, chỉ bật/tắt hiển thị overlay
+
     private string StreamBaseUrl = "http://localhost:8889";
     private string HlsBaseUrl = "http://localhost:8888";
 
     private System.Threading.Timer? statusTimer;
+    private System.Threading.Timer? overlayCleanerTimer;
     private DotNetObjectReference<LiveCameraPage>? objRef;
 
-    protected override void OnInitialized()
+    private class ScanLogEntry
+    {
+        public DateTime Time { get; set; }
+        public string QrCode { get; set; } = "";
+        public string Action { get; set; } = "";
+        public string Message { get; set; } = "";
+    }
+
+    protected override Task OnInitializedAsync()
     {
         try
         {
@@ -444,49 +214,93 @@
         catch { }
 
         objRef = DotNetObjectReference.Create(this);
+        return Task.CompletedTask;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
-            return;
-
-        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
-        if (!(auth.User.Identity?.IsAuthenticated ?? false))
+        if (firstRender)
         {
-            Nav.NavigateTo("/login");
-            return;
+            await LoadStations();
+
+            // Timer cập nhật trạng thái đang quay
+            statusTimer = new System.Threading.Timer(async _ => await CheckRecordingStatus(),
+                                                     null, 0, 1000);
+
+            // Timer dọn overlay > 5s
+            overlayCleanerTimer = new System.Threading.Timer(_ => CleanupOverlays(),
+                                                             null, 5000, 1000);
+
+            // Kết nối JS (SignalR client)
+            if (objRef != null)
+            {
+                await JS.InvokeVoidAsync("scanOverlay.init", objRef);
+            }
         }
-
-        await LoadStations();
-
-        // Poll trạng thái RECORDING từ backend
-        statusTimer = new System.Threading.Timer(
-            async _ => await CheckRecordingStatus(),
-            null,
-            0,
-            1000
-        );
     }
 
-    private async Task ToggleScanMode()
+    private void CleanupOverlays()
+    {
+        var cutoff = DateTime.Now.AddSeconds(-5);
+        var keys = overlayByStation
+            .Where(kv => kv.Value.Time < cutoff)
+            .Select(kv => kv.Key)
+            .ToList();
+
+        if (keys.Count == 0) return;
+
+        foreach (var k in keys)
+            overlayByStation.Remove(k);
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private Task ToggleScanMode()
     {
         isAutoScanMode = !isAutoScanMode;
+        return Task.CompletedTask;
+    }
 
-        // Tắt quét: stop tất cả JS
-        if (!isAutoScanMode)
+    // 🧠 Hàm này được JS gọi khi Worker bắn ScanResult qua SignalR
+    [JSInvokable]
+    public Task OnScanResultFromServer(
+        string stationName,
+        string code,
+        double x,
+        double y,
+        double w,
+        double h)
+    {
+        if (string.IsNullOrWhiteSpace(stationName) || string.IsNullOrWhiteSpace(code))
+            return Task.CompletedTask;
+
+        overlayByStation[stationName] = new ScanOverlayInfo
         {
-            try { await JS.InvokeVoidAsync("stopHlsScan", (object?)null); } catch { }
-        }
+            Code = code,
+            X = x,
+            Y = y,
+            W = w,
+            H = h,
+            Time = DateTime.Now
+        };
+
+        // log mini
+        if (!scanLogs.ContainsKey(stationName))
+            scanLogs[stationName] = new();
+
+        scanLogs[stationName].Insert(0, new ScanLogEntry
+        {
+            Time = DateTime.Now,
+            QrCode = code,
+            Action = "scan",
+            Message = "Server scan"
+        });
+
+        if (scanLogs[stationName].Count > 5)
+            scanLogs[stationName].RemoveAt(scanLogs[stationName].Count - 1);
 
         StateHasChanged();
-
-        // Bật quét: đợi DOM render xong <video>, rồi start scanners
-        if (isAutoScanMode)
-        {
-            await Task.Delay(500);
-            await InitializeAllScanners();
-        }
+        return Task.CompletedTask;
     }
 
     private async Task LoadStations()
@@ -500,9 +314,8 @@
             stations = await Http.GetFromJsonAsync<List<Station>>("api/station") ?? new();
             stations = stations.OrderBy(s => s.Name).ToList();
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"LoadStations error: {ex.Message}");
         }
         finally
         {
@@ -511,103 +324,35 @@
         }
     }
 
-    private async Task InitializeAllScanners()
-    {
-        if (!isAutoScanMode || objRef is null) return;
-
-        foreach (var st in stations)
-        {
-            if (st.QrCamera != null && !string.IsNullOrEmpty(st.QrCamera.RtspUrl))
-            {
-                var hlsUrl = $"{HlsBaseUrl}/{st.QrCamera.Name}/index.m3u8";
-
-                try
-                {
-                    await JS.InvokeVoidAsync(
-                        "startHlsScanByElementId",
-                        hlsUrl,
-                        $"video-{st.Id}",
-                        $"canvas-{st.Id}",
-                        objRef,
-                        true,
-                        st.Name // stationName
-                    );
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Init scanner for {st.Name} failed: {ex.Message}");
-                }
-            }
-        }
-    }
-
-    // JS gọi sang: mỗi lần đọc được mã tại một TRẠM
-    [JSInvokable]
-    public async Task ProcessScan(string stationName, string code)
-    {
-        if (string.IsNullOrWhiteSpace(code))
-            return;
-
-        try
-        {
-            await AttachToken();
-
-            var payload = new
-            {
-                QrCode = code,
-                Station = stationName,
-                Source = "LiveDashboard",
-                Mode = 1  // tuỳ backend bạn xử lý (toggle start/stop)
-            };
-
-            await Http.PostAsJsonAsync("api/record/scan", payload);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"ProcessScan error: {ex.Message}");
-        }
-    }
-
     private async Task CheckRecordingStatus()
     {
         try
         {
             await AttachToken();
-            var status =
-                await Http.GetFromJsonAsync<Dictionary<string, string>>(
-                    "api/record/recording-status");
-
-            if (status != null)
+            var rs = await Http.GetFromJsonAsync<Dictionary<string, string>>("api/record/recording-status");
+            if (rs != null)
             {
-                recordingStatus = status;
+                recordingStatus = rs;
                 await InvokeAsync(StateHasChanged);
             }
         }
-        catch { }
+        catch
+        {
+        }
     }
 
     private async Task AttachToken()
     {
-        var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
-        if (!string.IsNullOrEmpty(token))
-        {
-            Http.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", token);
-        }
+        var t = await JS.InvokeAsync<string>("localStorage.getItem", "token");
+        if (!string.IsNullOrEmpty(t))
+            Http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", t);
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         statusTimer?.Dispose();
-        if (objRef != null)
-        {
-            objRef.Dispose();
-        }
-
-        try
-        {
-            await JS.InvokeVoidAsync("stopHlsScan", (object?)null);
-        }
-        catch { }
+        overlayCleanerTimer?.Dispose();
+        objRef?.Dispose();
+        return ValueTask.CompletedTask;
     }
 }

@@ -404,3 +404,39 @@ video:not([paused]):not([ended]) + canvas + .qr-camera-overlay + .reload-overlay
         border-color: #3b82f6;
         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
     }
+
+/* app.css */
+
+.scan-container-relative {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.qr-overlay-root {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 20;
+}
+
+.qr-overlay-box {
+    position: absolute;
+    border: 3px solid #22c55e;
+    border-radius: 6px;
+    box-shadow: 0 0 15px rgba(34,197,94,0.7);
+}
+
+.qr-overlay-label {
+    position: absolute;
+    left: 50%;
+    bottom: 10%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.75);
+    color: #bbf7d0;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+

@@ -2,94 +2,92 @@
     padding: 2rem;
     max-width: 1500px;
     margin: 0 auto;
-    animation: fadeIn 0.4s ease-out;
 }
 
+/* HEADER */
 .page-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1.5rem;
     border-bottom: 1px solid #e5e7eb;
-    padding-bottom: 0.75rem;
+    padding-bottom: .8rem;
+    margin-bottom: 1.5rem;
 }
 
 .header-left h1 {
-    margin: 0;
-    font-size: 1.8rem;
+    font-size: 1.75rem;
     font-weight: 800;
+    margin: 0;
     color: #1e3a8a;
 }
 
 .header-sub {
-    font-size: 0.8rem;
-    color: #9ca3af;
-}
-
-.header-right {
-    display: flex;
-    align-items: center;
+    font-size: .85rem;
+    color: #777;
 }
 
 .status-badge {
     background: #fee2e2;
     color: #dc2626;
-    padding: 0.35rem 0.9rem;
+    padding: .35rem .9rem;
     border-radius: 999px;
     font-weight: 700;
-    display: inline-flex;
+    border: 1px solid #fecaca;
+    display: flex;
     align-items: center;
     gap: 6px;
-    border: 1px solid #fecaca;
 }
 
-/* live dot */
 .live-dot {
     width: 9px;
     height: 9px;
-    border-radius: 999px;
     background: #dc2626;
+    border-radius: 999px;
     animation: pulseRed 1.4s infinite;
 }
 
-/* STATION CARD */
+/* CARDS */
 .station-list {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1.6rem;
 }
 
 .station-card {
-    background: #ffffff;
-    border-radius: 14px;
-    box-shadow: 0 8px 25px rgba(15, 23, 42, 0.08);
+    background: #fff;
+    border-radius: 12px;
+    padding: 1.2rem;
     border: 1px solid #e5e7eb;
-    padding: 1rem 1.25rem 1.25rem;
+    box-shadow: 0 6px 22px rgba(0,0,0,0.06);
 }
 
 .station-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.75rem;
+    margin-bottom: .8rem;
 }
 
 .station-id {
-    font-weight: 800;
-    font-size: 1rem;
+    background: #eef2ff;
+    color: #4f46e5;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-weight: 700;
 }
 
-.station-sub {
-    font-size: 0.8rem;
-    color: #6b7280;
+.user-badge {
+    background: #f3f4f6;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: .85rem;
 }
 
 .station-state-pill {
-    padding: 0.2rem 0.9rem;
+    padding: 3px 10px;
     border-radius: 999px;
-    font-size: 0.75rem;
+    font-size: .75rem;
     font-weight: 700;
-    color: #f9fafb;
+    color: white;
 }
 
     .station-state-pill.ready {
@@ -100,49 +98,36 @@
         background: #dc2626;
     }
 
-/* 2 camera trong 1 máy */
-.station-body {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-    gap: 1.25rem;
-    margin-top: 0.25rem;
-}
-
-.camera-block {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.cam-label {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #4b5563;
-}
-
-/* VIDEO + OVERLAY */
+/* CAM WRAPPER */
 .video-wrapper {
     width: 100%;
     aspect-ratio: 16 / 9;
-    background: #0f172a;
+    background: #000;
+    position: relative;
     border-radius: 12px;
     overflow: hidden;
-    border: 1px solid #020617;
-    position: relative;
 }
 
 .video-frame {
     width: 100%;
     height: 100%;
-    border: none;
+    object-fit: contain;
 }
 
+.scan-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+/* OVERLAY */
 .overlay {
     position: absolute;
     z-index: 5;
+    color: white;
     pointer-events: none;
-    color: #f9fafb;
-    font-size: 0.78rem;
 }
 
 .overlay-top-left {
@@ -155,127 +140,39 @@
     right: 6px;
 }
 
-.overlay-bottom {
-    left: 0;
-    right: 0;
-    bottom: 0;
-    padding: 4px 8px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    background: linear-gradient(to top, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.0));
-}
-
 .overlay-tag {
-    background: rgba(15, 23, 42, 0.8);
+    padding: 3px 8px;
+    background: rgba(0,0,0,0.68);
     border-radius: 6px;
-    padding: 2px 8px;
-    font-weight: 600;
+    font-size: .75rem;
     text-transform: uppercase;
+    font-weight: 700;
 }
 
 .qr-text {
-    max-width: 70%;
-    background: rgba(15, 23, 42, 0.85);
-    padding: 4px 8px;
+    background: rgba(0,0,0,.7);
+    padding: 4px 10px;
     border-radius: 6px;
     font-weight: 700;
-    font-size: 0.95rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
-.state-pill {
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 0.7rem;
-    font-weight: 700;
-}
-
-    .state-pill.ready {
-        background: #1d4ed8;
-    }
-
-    .state-pill.rec {
-        background: #dc2626;
-    }
-
-.overlay-text {
-    font-size: 0.8rem;
-    font-weight: 600;
-}
-
-.overlay-text-small {
-    font-size: 0.7rem;
-    color: #cbd5f5;
-}
-
+/* NO CAMERA */
 .no-camera {
     width: 100%;
     height: 100%;
-    color: #9ca3af;
+    background: #111;
+    color: #888;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #020617;
 }
 
-/* misc */
-.cam-footer {
-    margin-top: 0.15rem;
-    font-size: 0.75rem;
-    color: #9ca3af;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+/* LOG */
+.status-box {
+    margin-top: 20px;
 }
 
-.spinner-container {
-    text-align: center;
-    margin-top: 3rem;
-}
-
-.spinner {
-    border: 4px solid #e5e7eb;
-    border-top: 4px solid #3b82f6;
-    border-radius: 999px;
-    width: 40px;
-    height: 40px;
-    animation: spin 1s linear infinite;
-    margin: 0 auto 1rem;
-}
-
-.empty-state {
-    margin-top: 3rem;
-    text-align: center;
-    color: #6b7280;
-}
-
-.btn-primary {
-    display: inline-block;
-    margin-top: 1rem;
-    padding: 0.6rem 1.4rem;
-    border-radius: 999px;
-    background: #2563eb;
-    color: white;
-    text-decoration: none;
-    font-weight: 600;
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(6px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
+/* ANIMATIONS */
 @keyframes pulseRed {
     0% {
         opacity: 1;
@@ -290,12 +187,55 @@
     }
 }
 
-@keyframes spin {
-    from {
-        transform: rotate(0deg);
+.animate-pulse {
+    animation: pulseRed 1.4s infinite;
+}
+
+
+.scan-container-relative {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.qr-overlay-root {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 30;
+}
+
+.qr-overlay-box {
+    position: absolute;
+    border: 3px solid #22c55e;
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.8);
+    border-radius: 8px;
+    box-sizing: border-box;
+    /* animation nhỏ cho vui */
+    animation: qrGlow 0.6s ease-out;
+}
+
+.qr-overlay-label {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #bbf7d0;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);
+}
+
+@keyframes qrGlow {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 2px rgba(34, 197, 94, 0.3);
     }
 
-    to {
-        transform: rotate(360deg);
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 12px rgba(34, 197, 94, 0.8);
     }
 }

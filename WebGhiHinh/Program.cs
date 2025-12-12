@@ -12,6 +12,7 @@ using System.Text;
 using WebGhiHinh.Components;
 using WebGhiHinh.Data;
 using WebGhiHinh.Services;
+using WebGhiHinh.Hubs;   // ✅ thêm cho ScanHub
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -61,14 +62,11 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-// ✅ Bật lỗi chi tiết circuit để tránh trắng trang khó debug
+// Bật lỗi chi tiết circuit để dễ debug
 builder.Services.Configure<CircuitOptions>(o =>
 {
     o.DetailedErrors = true;
 });
-
-// ❌ TẠM TẮT handler cũ vì .NET 8 không có circuit.Services
-// builder.Services.AddSingleton<CircuitHandler, AutoReleaseCircuitHandler>();
 
 // ===============================
 // Services
@@ -82,6 +80,12 @@ builder.Services.AddScoped(sp => new HttpClient
 });
 
 builder.Services.AddScoped<ProtectedSessionStorage>();
+
+// ✅ SignalR cho real-time ScanResult
+builder.Services.AddSignalR();
+
+// ✅ Worker scan server-side
+builder.Services.AddHostedService<QrScanWorker>();
 
 // ===============================
 // Auth state for Blazor
@@ -165,6 +169,9 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapControllers();
+
+// ✅ Map hub SignalR để scan-overlay.js kết nối
+app.MapHub<ScanHub>("/scanHub");
 
 app.MapRazorComponents<App>()
    .AddInteractiveServerRenderMode();
