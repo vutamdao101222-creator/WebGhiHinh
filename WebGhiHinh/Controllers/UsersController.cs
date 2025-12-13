@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WebGhiHinh.Data;
 using WebGhiHinh.Models;
-using QRCoder; // 👈 phải có dòng này
+using QRCoder;
 
 namespace WebGhiHinh.Controllers
 {
@@ -19,9 +19,7 @@ namespace WebGhiHinh.Controllers
             _context = context;
         }
 
-        // =========================================================
         // 1) LIST USERS
-        // =========================================================
         [HttpGet]
         public async Task<IActionResult> GetUsers()
         {
@@ -41,9 +39,7 @@ namespace WebGhiHinh.Controllers
             return Ok(users);
         }
 
-        // =========================================================
         // 2) GET ONE USER
-        // =========================================================
         [HttpGet("{id:int}")]
         public async Task<IActionResult> GetUser(int id)
         {
@@ -61,9 +57,7 @@ namespace WebGhiHinh.Controllers
             });
         }
 
-        // =========================================================
         // 3) CREATE USER
-        // =========================================================
         [HttpPost]
         public async Task<IActionResult> CreateUser([FromBody] CreateUserDto request)
         {
@@ -103,9 +97,7 @@ namespace WebGhiHinh.Controllers
             });
         }
 
-        // =========================================================
         // 4) UPDATE USER
-        // =========================================================
         [HttpPut("{id:int}")]
         public async Task<IActionResult> UpdateUser(int id, [FromBody] UpdateUserDto request)
         {
@@ -146,9 +138,7 @@ namespace WebGhiHinh.Controllers
             });
         }
 
-        // =========================================================
         // 5) DELETE USER
-        // =========================================================
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> DeleteUser(int id)
         {
@@ -161,9 +151,7 @@ namespace WebGhiHinh.Controllers
             return Ok(new { message = "🗑️ Đã xóa người dùng" });
         }
 
-        // =========================================================
-        // 6) GET EMPLOYEE QR PAYLOAD BY USER ID (STRING)
-        // =========================================================
+        // 6) GET EMPLOYEE QR PAYLOAD BY USER ID
         [HttpGet("{id:int}/employee-qr-payload")]
         public async Task<IActionResult> GetEmployeeQrPayload(int id)
         {
@@ -184,9 +172,7 @@ namespace WebGhiHinh.Controllers
             });
         }
 
-        // =========================================================
-        // 7) GET EMPLOYEE QR PAYLOAD BY CODE/USERNAME (STRING)
-        // =========================================================
+        // 7) GET EMPLOYEE QR PAYLOAD BY CODE/USERNAME
         [HttpPost("employee-qr-payload")]
         public async Task<IActionResult> GetEmployeeQrPayloadByKey([FromBody] EmployeeQrLookupDto req)
         {
@@ -228,10 +214,7 @@ namespace WebGhiHinh.Controllers
             });
         }
 
-        // =========================================================
         // 8) GET EMPLOYEE QR IMAGE (PNG)
-        // GET: api/users/{id}/employee-qr-image
-        // =========================================================
         [HttpGet("{id:int}/employee-qr-image")]
         public async Task<IActionResult> GetEmployeeQrImage(int id)
         {
@@ -242,24 +225,22 @@ namespace WebGhiHinh.Controllers
             if (string.IsNullOrWhiteSpace(payload))
                 return BadRequest(new { message = "User chưa có EmployeeCode để tạo QR." });
 
-            // Tạo QR PNG bằng QRCoder
             using var generator = new QRCodeGenerator();
             using var data = generator.CreateQrCode(payload, QRCodeGenerator.ECCLevel.Q);
             using var qrCode = new PngByteQRCode(data);
-            var bytes = qrCode.GetGraphic(20); // 20 = size module
+            var bytes = qrCode.GetGraphic(20);
 
             return File(bytes, "image/png");
         }
 
-        // =========================================================
-        // PRIVATE
-        // =========================================================
+        // ======= PRIVATE =======
         private static string? BuildEmployeePayload(User user)
         {
             if (user == null) return null;
             if (string.IsNullOrWhiteSpace(user.EmployeeCode)) return null;
 
-            return $"EMP:{user.EmployeeCode.Trim()}";
+            // ✅ Payload mới: chỉ mã NV, ví dụ: "CTV0013"
+            return user.EmployeeCode.Trim();
         }
     }
 

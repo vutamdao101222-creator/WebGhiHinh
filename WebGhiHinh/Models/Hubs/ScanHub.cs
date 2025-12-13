@@ -19,7 +19,7 @@ namespace WebGhiHinh.Hubs
         public Task BroadcastScan(ScanResultMessage msg)
         {
             // ✅ Thống nhất event name: ScanHit
-            return Clients.All.SendAsync("ScanResult", msg);
+            return Clients.All.SendAsync("ScanHit", msg);
         }
     }
 }

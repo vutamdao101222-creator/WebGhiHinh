@@ -5,22 +5,19 @@
         return;
     }
 
-    console.log("[scanOverlay] loading...");
+    console.log("[scanOverlay] Connecting to SignalR...");
 
-    // Sẽ được set từ Blazor
-    let dotnetRef = null;
+    let dotNetRef = null;
 
+    // Blazor gọi hàm này: JS.InvokeVoidAsync("scanOverlay.init", objRef);
     function init(ref) {
-        dotnetRef = ref;
+        dotNetRef = ref;
         console.log("[scanOverlay] init from Blazor");
     }
 
-    // Beep nhỏ báo HIT
     function beep() {
         try {
-            const Ctx = window.AudioContext || window.webkitAudioContext;
-            if (!Ctx) return;
-            const ctx = new Ctx();
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             osc.type = "square";
@@ -36,54 +33,40 @@
         } catch { }
     }
 
-    // Kết nối hub
     const connection = new signalR.HubConnectionBuilder()
-        .withUrl("/scanHub")   // ⚠ trùng với app.MapHub<ScanHub>("/scanHub");
+        .withUrl("/scanhub")
         .withAutomaticReconnect()
         .build();
 
     function handlePayload(payload) {
-        if (!payload) return;
+        if (!payload || !dotNetRef) return;
 
-        const station =
-            payload.stationName ??
-            payload.station ??
-            payload.StationName;
-
-        const code =
-            payload.code ??
-            payload.Code;
-
-        const x = payload.x ?? payload.X ?? 0.3;
-        const y = payload.y ?? payload.Y ?? 0.3;
-        const w = payload.w ?? payload.W ?? 0.4;
-        const h = payload.h ?? payload.H ?? 0.4;
+        const station = payload.stationName || payload.station || payload.StationName;
+        const code = payload.code || payload.Code;
+        const x = payload.x ?? payload.X ?? 0;
+        const y = payload.y ?? payload.Y ?? 0;
+        const w = payload.w ?? payload.W ?? 0;
+        const h = payload.h ?? payload.H ?? 0;
 
         if (!station || !code) return;
 
         console.log("[scanOverlay] HIT:", station, code);
-        beep();
 
-        if (dotnetRef) {
-            dotnetRef.invokeMethodAsync(
-                "OnScanResultFromServer",
-                station,
-                code,
-                x, y, w, h
-            ).catch(err => console.error("[scanOverlay] invoke error:", err));
-        }
+        // Gọi lại LiveCameraPage.OnScanResultFromServer(...)
+        dotNetRef.invokeMethodAsync("OnScanResultFromServer", station, code, x, y, w, h)
+            .catch(err => console.error("[scanOverlay] invoke error:", err));
+
+        beep();
     }
 
-    // Nghe cả 2 event name cho chắc
     connection.on("ScanResult", handlePayload);
     connection.on("ScanHit", handlePayload);
 
     connection
         .start()
-        .then(() => console.log("[scanOverlay] SignalR connected"))
+        .then(() => console.log("[scanOverlay] Connected successfully!!"))
         .catch(err => console.error("[scanOverlay] connect error:", err));
 
-    // Expose cho Blazor gọi
     window.scanOverlay = {
         init: init
     };

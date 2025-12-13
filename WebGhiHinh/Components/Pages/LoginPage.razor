@@ -93,7 +93,6 @@
 
             if (!response.IsSuccessStatusCode)
             {
-                // Đọc lỗi từ API (nếu có)
                 var content = await response.Content.ReadAsStringAsync();
                 error = string.IsNullOrEmpty(content) ? "Đăng nhập thất bại (Lỗi server)" : content;
                 return;
@@ -107,38 +106,37 @@
                 return;
             }
 
-            // 2. Lưu Token vào LocalStorage
+            // 2. Lưu Token và thông tin vào LocalStorage
             await JS.InvokeVoidAsync("localStorage.setItem", "token", result.access_token);
             
-            // Lưu thêm thông tin phụ để tiện dùng ở client (không bảo mật, chỉ để hiện tên)
             if (!string.IsNullOrEmpty(result.username))
                 await JS.InvokeVoidAsync("localStorage.setItem", "username", result.username);
             
             if (!string.IsNullOrEmpty(result.role))
                 await JS.InvokeVoidAsync("localStorage.setItem", "role", result.role);
 
-            // 3. Cập nhật trạng thái Authentication (QUAN TRỌNG)
+            // 3. Cập nhật trạng thái Authentication (QUAN TRỌNG: Gọi đủ 3 tham số)
             if (AuthStateProvider is CustomAuthStateProvider authProvider)
             {
-                await authProvider.MarkUserAsAuthenticated(result.access_token);
+                // ✅ SỬA LỖI: Truyền đủ username, token, role để khớp với CustomAuthStateProvider
+                await authProvider.MarkUserAsAuthenticated(result.username, result.access_token, result.role);
             }
 
-            // 4. Đợi một chút để state cập nhật xong (tránh race condition)
+            // 4. Đợi một chút để state cập nhật xong
             await Task.Delay(100);
 
             // 5. Chuyển trang dựa trên Role
-            // Kiểm tra role trả về từ API
             var role = result.role?.Trim().ToLowerInvariant();
 
             if (role == "admin" || role == "admin1")
             {
-                // Nếu là Admin -> Vào Dashboard Admin
-                Nav.NavigateTo("/admin", true); // true = Force reload để refresh state toàn trang
+                // Admin -> Dashboard Admin
+                Nav.NavigateTo("/admin", true); 
             }
             else
             {
-                // Nếu là User thường -> Vào trang Scan
-                Nav.NavigateTo("/scan", true);
+                // User -> Trang Live Camera
+                Nav.NavigateTo("/live", true);
             }
         }
         catch (Exception ex)
@@ -156,7 +154,6 @@
     private void TriggerGlow()
     {
         isGlowing = true;
-        // Tắt hiệu ứng sau 300ms
         Task.Delay(300).ContinueWith(_ =>
         {
             InvokeAsync(() =>

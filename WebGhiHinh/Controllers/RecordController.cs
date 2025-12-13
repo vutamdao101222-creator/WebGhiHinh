@@ -67,10 +67,10 @@ namespace WebGhiHinh.Controllers
                     });
                 }
 
-                // Cùng user -> toggle ra trạm
+                // Cùng user -> toggle rời trạm
                 if (station.CurrentUserId == employee.Id)
                 {
-                    // nếu đang quay thì stop luôn để an toàn nghiệp vụ
+                    // nếu đang quay thì stop luôn
                     var activeLog = await _context.VideoLogs
                         .FirstOrDefaultAsync(v => v.StationName == station.Name && v.EndTime == null);
 
@@ -95,7 +95,7 @@ namespace WebGhiHinh.Controllers
                 return Ok(new
                 {
                     action = "station_blocked",
-                    message = $"⛔ Trạm đang được dùng bởi {(other?.FullName ?? other?.Username ?? "người khác")}.",
+                    message = $"⛔ Trạm đang được dùng bởi {(other?.FullName ?? other?.Username ?? "người khác")}."
                 });
             }
 
@@ -150,6 +150,7 @@ namespace WebGhiHinh.Controllers
                 });
             }
 
+            // Mã không phải stop, không phải nhân viên, cũng không phải order hợp lệ -> bỏ
             if (!IsOrderLike(code))
             {
                 return Ok(new
@@ -251,14 +252,15 @@ namespace WebGhiHinh.Controllers
 
         private static bool IsOrderLike(string code)
         {
-            // Chỉ nhận chuỗi số >= 6
+            // Chỉ nhận chuỗi toàn số, dài >= 6: 000123, 456789...
             return Regex.IsMatch(code ?? "", @"^\d{6,}$");
         }
 
         // Nhận dạng QR nhân viên:
-        // - EMP:CODE
-        // - hoặc CODE trùng EmployeeCode
-        // - hoặc CODE trùng Username
+        //  - EMP:CODE  → cắt "EMP:"
+        //  - hoặc CODE trùng EmployeeCode
+        //  - hoặc CODE trùng Username
+        // Hỗ trợ cả CTV0013 / CTV 0013 / ctv0013 ...
         private async Task<User?> TryResolveEmployeeAsync(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return null;
@@ -271,12 +273,17 @@ namespace WebGhiHinh.Controllers
 
             if (string.IsNullOrWhiteSpace(key)) return null;
 
-            // Bạn có thể chặn admin nếu muốn:
-            // .Where(u => u.Role != "admin")
+            // Chuẩn hóa: bỏ khoảng trắng, upper-case
+            var normalizedKey = key.Replace(" ", "").ToUpper();
+
             var user = await _context.Users
                 .FirstOrDefaultAsync(u =>
-                    u.EmployeeCode == key
-                    || u.Username == key);
+                    (u.EmployeeCode != null &&
+                     u.EmployeeCode.Replace(" ", "").ToUpper() == normalizedKey)
+                    ||
+                    (u.Username != null &&
+                     u.Username.Replace(" ", "").ToUpper() == normalizedKey)
+                );
 
             return user;
         }

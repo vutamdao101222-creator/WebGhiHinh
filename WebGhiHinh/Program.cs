@@ -11,13 +11,13 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using WebGhiHinh.Components;
 using WebGhiHinh.Data;
+using WebGhiHinh.Hubs;
 using WebGhiHinh.Services;
-using WebGhiHinh.Hubs;   // ✅ thêm cho ScanHub
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ===============================
-// Controllers + Swagger
+// 1. Controllers + Swagger
 // ===============================
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -31,7 +31,7 @@ builder.Services.AddSwaggerGen(options =>
         Scheme = "Bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Nhập chuỗi Token của bạn vào đây."
+        Description = "Nhập Bearer Token"
     });
 
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -51,56 +51,60 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 // ===============================
-// Database
+// 2. Database
 // ===============================
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // ===============================
-// Blazor Razor Components
+// 3. Blazor Server
 // ===============================
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-// Bật lỗi chi tiết circuit để dễ debug
 builder.Services.Configure<CircuitOptions>(o =>
 {
     o.DetailedErrors = true;
 });
 
 // ===============================
-// Services
+// 4. Services
 // ===============================
 builder.Services.AddSingleton<FfmpegService>();
 
-// HttpClient cho UI gọi API nội bộ
-builder.Services.AddScoped(sp => new HttpClient
+// HttpClient nội bộ (CHUẨN IIS)
+builder.Services.AddHttpClient();
+
+// Worker client (nếu cần base address)
+builder.Services.AddHttpClient("QrScan", client =>
 {
-    BaseAddress = new Uri("http://192.168.1.48/")
+    client.BaseAddress = new Uri("http://localhost/");
 });
 
 builder.Services.AddScoped<ProtectedSessionStorage>();
-
-// ✅ SignalR cho real-time ScanResult
 builder.Services.AddSignalR();
-
-// ✅ Worker scan server-side
 builder.Services.AddHostedService<QrScanWorker>();
 
 // ===============================
-// Auth state for Blazor
+// 5. Authentication State (Blazor)
 // ===============================
 builder.Services.AddScoped<AuthenticationStateProvider, CustomAuthStateProvider>();
 builder.Services.AddCascadingAuthenticationState();
 
 // ===============================
-// JWT for API
+// 6. JWT Authentication
 // ===============================
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 
-var key = builder.Configuration["Jwt:Key"] ?? "";
-var issuer = builder.Configuration["Jwt:Issuer"];
-var audience = builder.Configuration["Jwt:Audience"];
+var key = builder.Configuration["Jwt:Key"];
+var issuer = builder.Configuration["Jwt:Issuer"] ?? "WebGhiHinh";
+var audience = builder.Configuration["Jwt:Audience"] ?? "WebGhiHinhUser";
+
+// Fallback key (tránh crash IIS)
+if (string.IsNullOrEmpty(key) || key.Length < 32)
+{
+    key = "Key_Du_Phong_Cuc_Manh_Chong_Sap_IIS_123456789_ABC";
+}
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -123,7 +127,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 // ===============================
-// CORS
+// 7. CORS
 // ===============================
 builder.Services.AddCors(options =>
 {
@@ -136,19 +140,26 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // ===============================
-// Swagger
+// 8. Pipeline (CHUẨN IIS HTTP)
 // ===============================
 app.UseSwagger();
 app.UseSwaggerUI();
 
-// ===============================
-// Static files
-// ===============================
 app.UseStaticFiles();
 
-// Map video folder: /videos -> C:\GhiHinhVideos
+// ===== Video storage an toàn =====
 var videoPath = @"C:\GhiHinhVideos";
-if (!Directory.Exists(videoPath)) Directory.CreateDirectory(videoPath);
+try
+{
+    if (!Directory.Exists(videoPath))
+        Directory.CreateDirectory(videoPath);
+}
+catch
+{
+    videoPath = Path.Combine(app.Environment.ContentRootPath, "Videos_Store");
+    if (!Directory.Exists(videoPath))
+        Directory.CreateDirectory(videoPath);
+}
 
 app.UseStaticFiles(new StaticFileOptions
 {
@@ -156,21 +167,18 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/videos"
 });
 
-// ===============================
-// Pipeline
-// ===============================
-app.UseHttpsRedirection();
+// ❌ KHÔNG redirect HTTPS (IIS đang HTTP)
+// app.UseHttpsRedirection();
 
 app.UseCors("AllowAll");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseAntiforgery();
+// ❌ KHÔNG bật Antiforgery khi dùng JWT
+// app.UseAntiforgery();
 
 app.MapControllers();
-
-// ✅ Map hub SignalR để scan-overlay.js kết nối
 app.MapHub<ScanHub>("/scanHub");
 
 app.MapRazorComponents<App>()
