@@ -1,0 +1,165 @@
+﻿@page "/uservideo"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using WebGhiHinh.Models
+@using System.IO
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthStateProvider
+
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Lịch sử Ghi hình</PageTitle>
+
+<div class="video-page-container fade-in">
+    <div class="header-search">
+        <h1>🎞️ Kho Video</h1>
+
+        <div class="search-box">
+            <div class="input-group">
+                <span class="input-icon">🔍</span>
+                <input @bind="qrSearch" class="search-input" placeholder="Nhập mã QR..." />
+            </div>
+
+            <div class="date-group">
+                <label>Từ ngày:</label>
+                <input type="date" @bind="dateFrom" class="date-input" />
+            </div>
+
+            <div class="date-group">
+                <label>Đến ngày:</label>
+                <input type="date" @bind="dateTo" class="date-input" />
+            </div>
+
+            <button class="btn btn-primary" @onclick="SearchVideos" disabled="@loading">
+                @if (loading)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+
+                    <span>Tìm kiếm</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (loading && videos.Count == 0)
+    {
+        <div class="spinner-container"><div class="spinner"></div><p>Đang tải dữ liệu...</p></div>
+    }
+    else if (videos.Count == 0)
+    {
+        <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <p>Không tìm thấy video nào phù hợp.</p>
+        </div>
+    }
+    else
+    {
+        <div class="video-grid">
+            @foreach (var v in videos)
+            {
+                <div class="video-card">
+                    <div class="video-player">
+                        <!-- Đường dẫn video tĩnh (cần cấu hình StaticFiles cho thư mục lưu video) -->
+                        <!-- Giả sử bạn lưu vào wwwroot/videos -->
+                        <!-- Thay đổi đường dẫn src cho phù hợp với cấu hình StaticFiles của bạn -->
+                        <video controls preload="metadata">
+                            <source src="videos/@v.StationName/@Path.GetFileName(v.FilePath)" type="video/mp4">
+                            Trình duyệt không hỗ trợ thẻ video.
+                        </video>
+                    </div>
+                    <div class="video-info">
+                        <div class="qr-code">
+                            <span class="icon">🏷️</span> @v.QrCode
+                        </div>
+                        <div class="details">
+                            <div class="detail-item">
+                                <span class="icon">👤</span> @(v.RecordedBy ?? "Hệ thống")
+                            </div>
+                            <div class="detail-item">
+                                <span class="icon">📍</span> @(v.StationName ?? "Không xác định")
+                            </div>
+                        </div>
+                        <div class="time">
+                            <span class="icon">🕒</span>
+                            @v.StartTime.ToString("dd/MM/yyyy HH:mm")
+                            @if (v.EndTime.HasValue)
+                            {
+                                <span> - @v.EndTime.Value.ToString("HH:mm")</span>
+                            }
+                            else
+                            {
+
+                                <span class="recording-badge">Đang ghi...</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="card-actions">
+                        <a href="videos/@v.StationName/@Path.GetFileName(v.FilePath)" download class="btn btn-sm btn-outline">
+                            ⬇️ Tải về
+                        </a>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<VideoLog> videos = new();
+    private string qrSearch = "";
+    private DateTime? dateFrom;
+    private DateTime? dateTo;
+    private bool loading = true;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Đặt ngày mặc định là hôm nay
+            dateFrom = DateTime.Today;
+            dateTo = DateTime.Today;
+            await SearchVideos();
+            StateHasChanged();
+        }
+    }
+
+    private async Task SearchVideos()
+    {
+        loading = true;
+        try
+        {
+            await AttachToken();
+
+            // Xây dựng query string
+            var query = "api/videos?";
+            if (!string.IsNullOrEmpty(qrSearch)) query += $"qr_code={qrSearch}&";
+            if (dateFrom.HasValue) query += $"date_from={dateFrom.Value:yyyy-MM-dd}&";
+            if (dateTo.HasValue) query += $"date_to={dateTo.Value:yyyy-MM-dd}&";
+
+            videos = await Http.GetFromJsonAsync<List<VideoLog>>(query) ?? new();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Lỗi tải video: {ex.Message}");
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task AttachToken()
+    {
+        try
+        {
+            var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
+            if (!string.IsNullOrEmpty(token))
+                Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        }
+        catch { }
+    }
+}

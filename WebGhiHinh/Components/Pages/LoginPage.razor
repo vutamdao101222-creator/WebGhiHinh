@@ -1,0 +1,162 @@
+﻿@page "/login"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Web
+@using System.ComponentModel.DataAnnotations
+@using WebGhiHinh.Services
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+@* Tắt Prerender để đảm bảo JS chạy đúng và không bị lỗi Login Loop *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Đăng nhập</PageTitle>
+
+<div class="login-page">
+    <div class="tech-marquee-container">
+        <div class="tech-marquee-text">
+            @for (int i = 0; i < 12; i++)
+            {
+                <span>HOPLONG TECH</span>
+            }
+        </div>
+    </div>
+
+    <div class="login-card @(isGlowing ? "glow-strong" : "")">
+        <h1 class="login-title">Đăng nhập</h1>
+
+        <EditForm Model="@loginModel" OnValidSubmit="HandleLogin">
+            <DataAnnotationsValidator />
+
+            <div class="input-group">
+                <InputText @bind-Value="loginModel.Username"
+                           class="login-input"
+                           placeholder="Tên đăng nhập"
+                           @oninput="TriggerGlow" />
+            </div>
+
+            <div class="input-group">
+                <InputText @bind-Value="loginModel.Password"
+                           type="password"
+                           class="login-input"
+                           placeholder="Mật khẩu"
+                           @oninput="TriggerGlow" />
+            </div>
+
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <p class="login-error"
+                   style="background:#fee2e2;padding:10px;border-radius:8px;border:1px solid red;">
+                    @error
+                </p>
+            }
+
+            <button class="btn" type="submit" disabled="@loading">
+                @if (loading)
+                {
+                    <div class="spinner"></div>
+                    <span>Đang xử lý...</span>
+                }
+                else
+                {
+
+                    <span>Đăng nhập</span>
+                }
+            </button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private LoginDto loginModel { get; set; } = new();
+    private bool loading = false;
+    private string error = "";
+    private bool isGlowing = false;
+
+    private async Task HandleLogin()
+    {
+        loading = true;
+        error = "";
+        StateHasChanged();
+
+        try
+        {
+            // Gọi API đăng nhập
+            var response = await Http.PostAsJsonAsync("api/auth/login", loginModel);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                error = "Sai tên đăng nhập hoặc mật khẩu!";
+                return;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<LoginResponse>();
+
+            if (result is null || string.IsNullOrEmpty(result.access_token))
+            {
+                error = "Token nhận về không hợp lệ!";
+                return;
+            }
+
+            // 1. LƯU TOKEN VÀ USER INFO VÀO LOCALSTORAGE
+            await JS.InvokeVoidAsync("localStorage.setItem", "token", result.access_token);
+            await JS.InvokeVoidAsync("localStorage.setItem", "username", result.username);
+            await JS.InvokeVoidAsync("localStorage.setItem", "role", result.role);
+
+            // 2. CẬP NHẬT TRẠNG THÁI ĐĂNG NHẬP CHO BLAZOR
+            if (AuthStateProvider is CustomAuthStateProvider auth)
+            {
+                await auth.MarkUserAsAuthenticated(result.access_token);
+            }
+
+            // Đợi 1 chút để State được cập nhật chắc chắn
+            await Task.Delay(100);
+
+            // 3. CHUYỂN TRANG (QUAN TRỌNG: KHÔNG DÙNG THAM SỐ TRUE)
+            // Nếu dùng true, trang sẽ load lại từ đầu -> Mất trạng thái login -> Bị đẩy về lại trang login
+            if (result.role?.ToLower() == "admin")
+                Nav.NavigateTo("/admin");
+            else
+                Nav.NavigateTo("/scan");
+        }
+        catch (Exception ex)
+        {
+            error = $"Lỗi hệ thống: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void TriggerGlow()
+    {
+        isGlowing = true;
+        Task.Delay(300).ContinueWith(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                isGlowing = false;
+                StateHasChanged();
+            });
+        });
+    }
+
+    public class LoginDto
+    {
+        [Required(ErrorMessage = "Vui lòng nhập tên đăng nhập")]
+        public string Username { get; set; } = "";
+
+        [Required(ErrorMessage = "Vui lòng nhập mật khẩu")]
+        public string Password { get; set; } = "";
+    }
+
+    public class LoginResponse
+    {
+        public string access_token { get; set; }
+        public string username { get; set; }
+        public string role { get; set; }
+    }
+}
