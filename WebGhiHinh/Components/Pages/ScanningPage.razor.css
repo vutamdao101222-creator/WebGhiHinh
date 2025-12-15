@@ -1,6 +1,6 @@
-﻿/* --- ScanningPage.razor.css --- */
+﻿/* ... (Giữ nguyên các animation cũ ở đầu file: fadeIn, pulseBorder, spin, zaloScan, blinkRed) ... */
 
-/* 1. Animation Keyframes */
+/* --- 1. Animation Keyframes (Giữ nguyên) --- */
 @keyframes fadeIn {
     from {
         opacity: 0;
@@ -70,7 +70,118 @@
     }
 }
 
-/* 2. Page Layout */
+/* ... (Giữ nguyên Page Layout, Station Grid, Live Feed Card, Recording Status Box) ... */
+
+/* --- KHUNG VIDEO MỚI (Thay thế cấu trúc qr-camera cũ) --- */
+.video-wrapper {
+    position: relative;
+    width: 100%;
+    background-color: #000;
+    border-radius: 12px; /* Bo tròn góc */
+    overflow: hidden;
+    aspect-ratio: 16/9; /* Tỷ lệ khung hình chuẩn */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15); /* Bóng đổ */
+    margin-bottom: 1rem;
+}
+
+/* Lớp 1: Video gốc */
+.video-layer {
+    width: 100%;
+    height: 100%;
+    object-fit: contain; /* Giữ nguyên tỷ lệ video, không bị méo */
+    display: block;
+}
+
+/* Lớp 2: Canvas vẽ khung nhận diện */
+.overlay-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* Lớp 3: Hiệu ứng quét & Giao diện (Nằm trên cùng) */
+.qr-camera-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    /* Hiệu ứng tối góc (Vignette) nhẹ để tập trung vào giữa */
+    background: radial-gradient(circle at center, transparent 50%, rgba(0,0,0,0.4) 100%);
+    border-radius: 12px;
+    z-index: 3;
+    /* Viền mờ bao quanh */
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.1);
+}
+
+/* Hiệu ứng đường quét (Chỉ hiện khi Auto) */
+.qr-scan-line {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(to right, transparent, #ef4444, transparent); /* Màu đỏ laser */
+    box-shadow: 0 0 10px #ef4444, 0 0 20px #ef4444;
+    animation: zaloScan 2.5s infinite linear;
+    z-index: 4;
+}
+
+/* Khung ngắm 4 góc */
+.qr-corner {
+    position: absolute;
+    width: 30px;
+    height: 30px;
+    border-color: rgba(255, 255, 255, 0.6);
+    border-style: solid;
+    z-index: 4;
+}
+
+.qr-corner-tl {
+    top: 15px;
+    left: 15px;
+    border-width: 4px 0 0 4px;
+    border-top-left-radius: 8px;
+}
+
+.qr-corner-tr {
+    top: 15px;
+    right: 15px;
+    border-width: 4px 4px 0 0;
+    border-top-right-radius: 8px;
+}
+
+.qr-corner-bl {
+    bottom: 15px;
+    left: 15px;
+    border-width: 0 0 4px 4px;
+    border-bottom-left-radius: 8px;
+}
+
+.qr-corner-br {
+    bottom: 15px;
+    right: 15px;
+    border-width: 0 4px 4px 0;
+    border-bottom-right-radius: 8px;
+}
+
+/* Nút Reload */
+.reload-overlay {
+    position: absolute;
+    bottom: 15px;
+    right: 15px;
+    z-index: 10;
+    pointer-events: auto;
+}
+
+/* ... (Giữ nguyên các phần Input Manual, Buttons, Spinner, Alert còn lại) ... */
 .scan-container {
     padding: 1rem;
     max-width: 900px;
@@ -110,7 +221,6 @@
     margin-bottom: 2rem;
 }
 
-/* 3. Station Grid (Chọn trạm) */
 .station-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -163,7 +273,6 @@
     display: block;
 }
 
-/* 4. Live Feed Card (WebRTC Preview) */
 .live-feed-card {
     margin-top: 2rem;
     background: #000;
@@ -174,30 +283,12 @@
     margin-bottom: 2rem;
 }
 
-.live-feed-header {
-    background: #1f2937;
-    color: #f3f4f6;
-    padding: 0.75rem 1rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.95rem;
-}
-
 .live-feed-content {
     position: relative;
     width: 100%;
     aspect-ratio: 16/9;
 }
 
-.live-iframe {
-    width: 100%;
-    height: 100%;
-    border: none;
-}
-
-/* 5. Recording Status Box */
 .recording-status-box {
     padding: 0.75rem 1rem;
     border-radius: 8px;
@@ -228,91 +319,6 @@
     animation: blinkRed 1.5s infinite;
 }
 
-/* 6. QR Camera Frame (Khung quét) */
-.qr-camera {
-    width: 100%;
-    max-width: 450px;
-    border-radius: 16px;
-    margin: 1.5rem auto;
-    position: relative;
-    overflow: hidden;
-    transition: box-shadow 0.3s ease, border-color 0.3s ease;
-    border: 4px solid #e5e7eb;
-    background: #000;
-    aspect-ratio: 4/3; /* Tỷ lệ khung hình camera */
-}
-
-    .qr-camera.qr-found {
-        border-color: #059669;
-        box-shadow: 0 0 20px 5px rgba(5, 150, 105, 0.7);
-    }
-
-.qr-video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    transform: scaleX(-1); /* Lật gương cho tự nhiên */
-}
-
-.qr-camera-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    /* Tạo hiệu ứng tối 4 góc, sáng ở giữa */
-    box-shadow: inset 0 0 0 40px rgba(0,0,0,0.3);
-    pointer-events: none;
-}
-
-.qr-scan-line {
-    position: absolute;
-    left: 10%;
-    right: 10%;
-    height: 3px;
-    background: #ef4444; /* Màu đỏ laser */
-    box-shadow: 0 0 10px #ef4444, 0 0 20px #ef4444;
-    animation: zaloScan 2s infinite linear;
-}
-
-/* Các góc khung ngắm */
-.qr-corner-bracket {
-    position: absolute;
-    width: 40px;
-    height: 40px;
-    border: 5px solid rgba(255,255,255,0.8);
-    border-radius: 4px;
-}
-
-.top-left {
-    top: 20px;
-    left: 20px;
-    border-right: none;
-    border-bottom: none;
-}
-
-.top-right {
-    top: 20px;
-    right: 20px;
-    border-left: none;
-    border-bottom: none;
-}
-
-.bottom-left {
-    bottom: 20px;
-    left: 20px;
-    border-right: none;
-    border-top: none;
-}
-
-.bottom-right {
-    bottom: 20px;
-    right: 20px;
-    border-left: none;
-    border-top: none;
-}
-
-/* 7. Buttons */
 .qr-button-group {
     display: flex;
     justify-content: center;
@@ -366,26 +372,6 @@
         color: #4b5563;
     }
 
-.release-button {
-    position: absolute;
-    top: 1.5rem;
-    right: 1.5rem;
-    padding: 0.5rem 1rem;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    background: #fee2e2;
-    color: #dc2626;
-    border: 1px solid #fca5a5;
-    font-weight: 600;
-    cursor: pointer;
-    transition: 0.2s;
-}
-
-    .release-button:hover {
-        background: #fecaca;
-    }
-
-/* 8. Input Manual */
 .text-divider {
     color: #9ca3af;
     margin: 1.5rem 0;
@@ -397,7 +383,6 @@
     position: relative;
     border-radius: 12px;
     padding: 3px;
-    /* Hiệu ứng Border Pulse */
     animation: pulseBorder 2s infinite ease-in-out;
 }
 
@@ -417,7 +402,6 @@
         border-color: #3b82f6;
     }
 
-/* 9. Spinner & Alert */
 .spinner {
     width: 30px;
     height: 30px;

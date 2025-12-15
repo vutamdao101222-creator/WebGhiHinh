@@ -1,9 +1,8 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server;
 using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
@@ -17,9 +16,12 @@ using WebGhiHinh.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Config Services
+// ===============================
+// Controllers + Swagger
+// ===============================
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
 builder.Services.AddSwaggerGen(options =>
 {
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -29,46 +31,82 @@ builder.Services.AddSwaggerGen(options =>
         Scheme = "Bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Nhập Token."
+        Description = "Nhập chuỗi Token của bạn vào đây."
     });
+
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
-        { new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }, Array.Empty<string>() }
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
     });
 });
 
+// ===============================
+// Database
+// ===============================
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Blazor Interactive Server
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
-builder.Services.Configure<CircuitOptions>(o => o.DetailedErrors = true);
+// ===============================
+// Blazor Razor Components
+// ===============================
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
 
+// Bật lỗi chi tiết circuit để debug
+builder.Services.Configure<CircuitOptions>(o =>
+{
+    o.DetailedErrors = true;
+});
+
+// ===============================
+// Antiforgery (cho Razor Components)
+// ===============================
+builder.Services.AddAntiforgery();
+
+// ===============================
 // Services
+// ===============================
 builder.Services.AddSingleton<FfmpegService>();
-builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri("http://192.168.1.48/") });
-builder.Services.AddHttpClient("QrScan", client => { client.BaseAddress = new Uri("http://192.168.1.48/"); });
+
+// HttpClient cho UI gọi API nội bộ
+builder.Services.AddScoped(sp => new HttpClient
+{
+    // 👇 nếu sau này IP/port đổi thì sửa 1 chỗ này
+    BaseAddress = new Uri("http://192.168.1.48/")
+});
 
 builder.Services.AddScoped<ProtectedSessionStorage>();
-builder.Services.AddSignalR();
-// 👇 QUAN TRỌNG: Tạm thời đóng Worker lại để test giao diện trước. 
-// Nếu web lên hình thì mở lại dòng này sau.
-// builder.Services.AddHostedService<QrScanWorker>(); 
 
-// Auth & Data Protection
+// ✅ SignalR cho real-time ScanResult
+builder.Services.AddSignalR();
+
+// ✅ Worker scan server-side (OpenCV + ZXing)
+builder.Services.AddHostedService<QrScanWorker>();
+
+// ===============================
+// Auth state cho Blazor
+// ===============================
 builder.Services.AddScoped<AuthenticationStateProvider, CustomAuthStateProvider>();
 builder.Services.AddCascadingAuthenticationState();
 
-var keysFolder = Path.Combine(builder.Environment.ContentRootPath, "keys");
-Directory.CreateDirectory(keysFolder);
-builder.Services.AddDataProtection()
-    .PersistKeysToFileSystem(new DirectoryInfo(keysFolder))
-    .SetApplicationName("WebGhiHinhApp");
-
-// JWT
+// ===============================
+// JWT cho API
+// ===============================
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
-var key = builder.Configuration["Jwt:Key"];
-if (string.IsNullOrEmpty(key) || key.Length < 32) key = "Key_Du_Phong_Dai_Hon_32_Ky_Tu_De_Chong_Crash_App_123456_!!!";
+
+var key = builder.Configuration["Jwt:Key"] ?? "";
+var issuer = builder.Configuration["Jwt:Issuer"];
+var audience = builder.Configuration["Jwt:Audience"];
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -80,48 +118,70 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? "WebGhiHinh",
-            ValidAudience = builder.Configuration["Jwt:Audience"] ?? "WebGhiHinhUser",
+            ValidIssuer = issuer,
+            ValidAudience = audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
             RoleClaimType = "role",
             NameClaimType = "name"
         };
     });
+
 builder.Services.AddAuthorization();
-builder.Services.AddCors(o => o.AddPolicy("AllowAll", p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+
+// ===============================
+// CORS
+// ===============================
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", b =>
+        b.AllowAnyOrigin()
+         .AllowAnyHeader()
+         .AllowAnyMethod());
+});
 
 var app = builder.Build();
 
-// 2. Config Pipeline (Thứ tự rất quan trọng)
+// ===============================
+// Swagger
+// ===============================
 app.UseSwagger();
 app.UseSwaggerUI();
 
+// ===============================
+// Static files
+// ===============================
 app.UseStaticFiles();
 
-// Config Video Path
+// Map thư mục video: /videos -> C:\GhiHinhVideos
 var videoPath = @"C:\GhiHinhVideos";
-try { Directory.CreateDirectory(videoPath); }
-catch
-{
-    videoPath = Path.Combine(app.Environment.ContentRootPath, "Videos_Store");
-    Directory.CreateDirectory(videoPath);
-}
+if (!Directory.Exists(videoPath)) Directory.CreateDirectory(videoPath);
+
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(videoPath),
     RequestPath = "/videos"
 });
 
-app.UseRouting(); // 👈 Phải đặt trước Auth
+// ===============================
+// Pipeline
+// ===============================
+app.UseHttpsRedirection();
+
 app.UseCors("AllowAll");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseAntiforgery(); // 👈 Phải đặt sau Auth
+app.UseAntiforgery();
 
+// API controllers
 app.MapControllers();
+
+// ✅ Map hub SignalR để scan-overlay.js kết nối
 app.MapHub<ScanHub>("/scanHub");
-app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
+
+// Root Razor Components (App.razor)
+app.MapRazorComponents<App>()
+   .AddInteractiveServerRenderMode();
 
 app.Run();

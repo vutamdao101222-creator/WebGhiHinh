@@ -1,168 +1,324 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 using WebGhiHinh.Data;
 using WebGhiHinh.Models;
 using WebGhiHinh.Services;
-using System.Security.Claims;
 
 namespace WebGhiHinh.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class RecordController : ControllerBase
     {
         private readonly AppDbContext _context;
-        private readonly FfmpegService _ffmpegService;
+        private readonly FfmpegService _ffmpeg;
 
-        public RecordController(AppDbContext context, FfmpegService ffmpegService)
+        public RecordController(AppDbContext context, FfmpegService ffmpeg)
         {
             _context = context;
-            _ffmpegService = ffmpegService;
+            _ffmpeg = ffmpeg;
         }
 
-        // =====================================================
-        // 1) SCAN QR → Start or Stop Recording
-        // =====================================================
+        // =========================================================
+        // 1) SCAN ENTRYPOINT
+        // POST api/record/scan
+        // Trả JSON:
+        // { action: start|stop|ignore|error|station_join|station_leave|station_blocked, message, recording_qr? }
+        // =========================================================
         [HttpPost("scan")]
-        public async Task<IActionResult> StartScan([FromBody] ScanRequest request)
+        public async Task<IActionResult> Scan([FromBody] ScanRequest req)
         {
-            if (string.IsNullOrEmpty(request.QrCode) || string.IsNullOrEmpty(request.RtspUrl))
+            if (req == null || string.IsNullOrWhiteSpace(req.QrCode) || string.IsNullOrWhiteSpace(req.StationName))
+                return BadRequest(new { action = "error", message = "Request không hợp lệ." });
+
+            var code = req.QrCode.Trim();
+            var stationName = req.StationName.Trim();
+
+            // đảm bảo trạm tồn tại + load cam ids
+            var station = await _context.Stations
+                .Include(s => s.OverviewCamera)
+                .Include(s => s.QrCamera)
+                .Include(s => s.CurrentUser)
+                .FirstOrDefaultAsync(s => s.Name == stationName);
+
+            if (station == null)
+                return NotFound(new { action = "error", message = "Không tìm thấy trạm." });
+
+            // =====================================================
+            // (A) ƯU TIÊN 1: QR NHÂN VIÊN (TOGGLE OCCUPY/RELEASE)
+            // =====================================================
+            var employee = await TryResolveEmployeeAsync(code);
+            if (employee != null)
             {
-                return BadRequest(new { message = "Thiếu thông tin QR hoặc RTSP URL" });
+                // Trạm trống -> gán user
+                if (station.CurrentUserId == null)
+                {
+                    station.CurrentUserId = employee.Id;
+                    await _context.SaveChangesAsync();
+
+                    return Ok(new
+                    {
+                        action = "station_join",
+                        message = $"✅ {employee.FullName ?? employee.Username} đã vào trạm.",
+                        user = employee.Username
+                    });
+                }
+
+                // Cùng user -> toggle rời trạm
+                if (station.CurrentUserId == employee.Id)
+                {
+                    // nếu đang quay thì stop luôn
+                    var activeLog = await _context.VideoLogs
+                        .FirstOrDefaultAsync(v => v.StationName == station.Name && v.EndTime == null);
+
+                    if (activeLog != null)
+                    {
+                        await StopActiveRecording(station.Name, activeLog);
+                    }
+
+                    station.CurrentUserId = null;
+                    await _context.SaveChangesAsync();
+
+                    return Ok(new
+                    {
+                        action = "station_leave",
+                        message = $"🔓 {employee.FullName ?? employee.Username} đã rời trạm.",
+                        user = employee.Username
+                    });
+                }
+
+                // Trạm đang có người khác
+                var other = await _context.Users.FirstOrDefaultAsync(u => u.Id == station.CurrentUserId);
+                return Ok(new
+                {
+                    action = "station_blocked",
+                    message = $"⛔ Trạm đang được dùng bởi {(other?.FullName ?? other?.Username ?? "người khác")}."
+                });
             }
 
-            string currentUserName = User.FindFirst(ClaimTypes.Name)?.Value ?? "System";
-            string message = "";
+            // =====================================================
+            // (B) ƯU TIÊN 2: LOGIC QUAY THEO ORDER + STOP CODE
+            // =====================================================
 
-            // Tìm video đang quay tại trạm
-            var activeLog = await _context.VideoLogs
-                .FirstOrDefaultAsync(v => v.StationName == request.StationName && v.EndTime == null);
+            // active log của trạm
+            var active = await _context.VideoLogs
+                .FirstOrDefaultAsync(v => v.StationName == stationName && v.EndTime == null);
 
-            // -----------------------------------------------------
-            // CASE 1: QUÉT LẠI ĐÚNG MÃ → STOP VIDEO
-            // -----------------------------------------------------
-            if (activeLog != null && activeLog.QrCode == request.QrCode)
+            // ------------- STOP LOGIC -------------
+            if (IsStopCode(code))
             {
-                _ffmpegService.StopRecording(request.StationName);
+                if (active == null)
+                {
+                    return Ok(new
+                    {
+                        action = "ignore",
+                        message = "Không có phiên quay để dừng."
+                    });
+                }
 
-                activeLog.EndTime = DateTime.Now;
-                _context.VideoLogs.Update(activeLog);
-                await _context.SaveChangesAsync();
+                await StopActiveRecording(station.Name, active);
 
                 return Ok(new
                 {
                     action = "stop",
-                    message = $"Đã dừng ghi hình mã {request.QrCode}",
-                    recording_qr = request.QrCode
+                    message = "Đã dừng quay.",
+                    recording_qr = active.QrCode
                 });
             }
 
-            // -----------------------------------------------------
-            // CASE 2: CÓ VIDEO CŨ (KHÁC MÃ) → STOP CŨ, START MỚI
-            // -----------------------------------------------------
-            if (activeLog != null)
+            // ------------- START LOGIC -------------
+            if (active != null)
             {
-                _ffmpegService.StopRecording(activeLog.QrCode);
-
-                activeLog.EndTime = DateTime.Now;
-                _context.VideoLogs.Update(activeLog);
-                await _context.SaveChangesAsync();
-
-                message += $"Đã dừng mã cũ ({activeLog.QrCode}). ";
-            }
-
-            // -----------------------------------------------------
-            // CASE 3: KHÔNG TRÙNG MÃ → BẮT ĐẦU VIDEO MỚI
-            // -----------------------------------------------------
-            try
-            {
-                string relativeFilePath = _ffmpegService.StartRecording(
-                    request.RtspUrl,
-                    request.QrCode,
-                    request.StationName,
-                    currentUserName
-                );
-
-                var newLog = new VideoLog
+                if (string.Equals(active.QrCode, code, StringComparison.OrdinalIgnoreCase))
                 {
-                    QrCode = request.QrCode,
-                    StationName = request.StationName,
-                    FilePath = relativeFilePath,
-                    StartTime = DateTime.Now,
-                    RecordedBy = currentUserName
-                };
-
-                _context.VideoLogs.Add(newLog);
-                await _context.SaveChangesAsync();
+                    return Ok(new
+                    {
+                        action = "ignore",
+                        message = "Auto thấy lại mã đang quay → bỏ qua.",
+                        recording_qr = active.QrCode
+                    });
+                }
 
                 return Ok(new
                 {
-                    action = "start",
-                    message = message + $"Bắt đầu ghi hình: {request.QrCode}",
-                    recording_qr = request.QrCode
+                    action = "ignore",
+                    message = $"Trạm đang quay mã khác: {active.QrCode}",
+                    recording_qr = active.QrCode
                 });
+            }
+
+            // Mã không phải stop, không phải nhân viên, cũng không phải order hợp lệ -> bỏ
+            if (!IsOrderLike(code))
+            {
+                return Ok(new
+                {
+                    action = "ignore",
+                    message = "Mã không hợp lệ để bắt đầu quay."
+                });
+            }
+
+            // chọn camera ghi hình (ưu tiên Overview)
+            string rtsp = req.RtspUrl ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(rtsp))
+            {
+                rtsp = station.OverviewCamera?.RtspUrl
+                       ?? station.QrCamera?.RtspUrl
+                       ?? string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(rtsp))
+            {
+                return BadRequest(new
+                {
+                    action = "error",
+                    message = "Không có RTSP để ghi hình."
+                });
+            }
+
+            var username = User.Identity?.Name ?? "Admin";
+
+            // START FFMPEG -> nhận FilePath
+            string filePath;
+            try
+            {
+                filePath = _ffmpeg.StartRecording(rtsp, code, stationName, username);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "Lỗi hệ thống: " + ex.Message });
+                return Ok(new
+                {
+                    action = "error",
+                    message = "Start FFmpeg thất bại: " + ex.Message
+                });
             }
-        }
 
-        // =====================================================
-        // 2) STOP RECORDING (manual)
-        // =====================================================
-        [HttpPost("stop")]
-        public async Task<IActionResult> StopScan([FromBody] StopRequest request)
-        {
-            var activeLog = await _context.VideoLogs
-                .FirstOrDefaultAsync(v => v.QrCode == request.QrCode && v.EndTime == null);
-
-            _ffmpegService.StopRecording(request.QrCode);
-
-            if (activeLog != null)
+            // tạo log (khớp đúng model VideoLog của bạn)
+            var log = new VideoLog
             {
-                activeLog.EndTime = DateTime.Now;
-                _context.VideoLogs.Update(activeLog);
-                await _context.SaveChangesAsync();
-            }
+                QrCode = code,
+                FilePath = filePath,
+                StationName = stationName,
+                RecordedBy = username,
+                CameraId = station.OverviewCameraId ?? station.QrCameraId,
+                StartTime = DateTime.Now,
+                EndTime = null
+            };
 
-            return Ok(new { action = "stop", message = $"Đã dừng ghi hình mã {request.QrCode}" });
+            _context.VideoLogs.Add(log);
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                action = "start",
+                message = "Đã bắt đầu quay.",
+                recording_qr = code
+            });
         }
 
-        // =====================================================
-        // 3) Check trạm đang quay mã nào
-        // =====================================================
+        // =========================================================
+        // 2) RECORDING STATUS
+        // GET api/record/recording-status
+        // Trả Dictionary<StationName, QrCode>
+        // =========================================================
         [HttpGet("recording-status")]
         public async Task<IActionResult> GetRecordingStatus()
         {
-            var activeVideos = await _context.VideoLogs
-                .Where(v => v.EndTime == null)
-                .Select(v => new { v.StationName, v.QrCode })
+            var actives = await _context.VideoLogs
+                .Where(v => v.EndTime == null && v.StationName != null)
                 .ToListAsync();
 
-            var status = new Dictionary<string, string>();
+            var dict = actives
+                .GroupBy(x => x.StationName!)
+                .ToDictionary(g => g.Key, g => g.First().QrCode);
 
-            foreach (var v in activeVideos)
+            return Ok(dict);
+        }
+
+        // =========================================================
+        // HELPERS
+        // =========================================================
+        private static bool IsStopCode(string code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return false;
+
+            return code.Contains("STOP RECORDING", StringComparison.OrdinalIgnoreCase)
+                || code.Equals("STOP", StringComparison.OrdinalIgnoreCase)
+                || code.Contains("@@STOP_RECORD@@", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsOrderLike(string code)
+        {
+            // Chỉ nhận chuỗi toàn số, dài >= 6: 000123, 456789...
+            return Regex.IsMatch(code ?? "", @"^\d{6,}$");
+        }
+
+        // Nhận dạng QR nhân viên:
+        //  - EMP:CODE  → cắt "EMP:"
+        //  - hoặc CODE trùng EmployeeCode
+        //  - hoặc CODE trùng Username
+        // Hỗ trợ cả CTV0013 / CTV 0013 / ctv0013 ...
+        private async Task<User?> TryResolveEmployeeAsync(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+
+            var code = raw.Trim();
+            string key = code;
+
+            if (code.StartsWith("EMP:", StringComparison.OrdinalIgnoreCase))
+                key = code.Substring(4).Trim();
+
+            if (string.IsNullOrWhiteSpace(key)) return null;
+
+            // Chuẩn hóa: bỏ khoảng trắng, upper-case
+            var normalizedKey = key.Replace(" ", "").ToUpper();
+
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u =>
+                    (u.EmployeeCode != null &&
+                     u.EmployeeCode.Replace(" ", "").ToUpper() == normalizedKey)
+                    ||
+                    (u.Username != null &&
+                     u.Username.Replace(" ", "").ToUpper() == normalizedKey)
+                );
+
+            return user;
+        }
+
+        private async Task StopActiveRecording(string stationName, VideoLog active)
+        {
+            try
             {
-                if (!string.IsNullOrEmpty(v.StationName))
-                    status[v.StationName] = v.QrCode;
+                _ffmpeg.StopRecording(stationName);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Warning] Stop FFmpeg failed: {ex.Message}");
             }
 
-            return Ok(status);
+            active.EndTime = DateTime.Now;
+            _context.VideoLogs.Update(active);
+            await _context.SaveChangesAsync();
         }
     }
 
-
-    // DTOs
+    // =========================================================
+    // DTOs + MODE
+    // =========================================================
     public class ScanRequest
     {
-        public string QrCode { get; set; }
-        public string RtspUrl { get; set; }
-        public string StationName { get; set; }
+        public string QrCode { get; set; } = "";
+        public string RtspUrl { get; set; } = "";
+        public string StationName { get; set; } = "";
+        public ScanSourceMode Mode { get; set; } = ScanSourceMode.BarcodeGun;
     }
 
-    public class StopRequest
+    public enum ScanSourceMode
     {
-        public string QrCode { get; set; }
+        BarcodeGun = 0,
+        CameraAuto = 1
     }
 }

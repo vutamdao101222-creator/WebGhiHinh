@@ -1,38 +1,45 @@
 ﻿@inherits LayoutComponentBase
-@using Microsoft.AspNetCore.Components.Authorization
-@using WebGhiHinh.Services
-@inject AuthenticationStateProvider AuthStateProvider
 
-<div class="page">
-    <main>
+<div class="main-layout">
+    <header class="header-bar">
+        <h1 class="app-title">🎥 HOPLONG TECH</h1>
+    </header>
+
+    <main class="main-content">
         @Body
     </main>
+
+    <footer class="footer-bar">
+        <p>© 2025 HOPLONG TECH - All rights reserved.</p>
+    </footer>
 </div>
 
-@if (isLoading)
-{
-    <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.8);display:flex;justify-content:center;align-items:center;z-index:9999;">
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Loading...</span>
-        </div>
-    </div>
-}
-
-@code {
-    private bool isLoading = true;
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-        {
-            // 👇 Tự động nạp lại user từ LocalStorage khi F5 trang
-            if (AuthStateProvider is CustomAuthStateProvider auth)
-            {
-                await auth.LoadUserFromLocalStorage();
-            }
-
-            isLoading = false;
-            StateHasChanged();
-        }
+<style>
+    .main-layout {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+        background: #f9fafb;
     }
-}
+
+    .header-bar {
+        background: linear-gradient(90deg, #2563eb, #1e40af);
+        color: #fff;
+        padding: 1rem 1.5rem;
+        font-weight: 600;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+
+    .main-content {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    .footer-bar {
+        background: #111827;
+        color: #9ca3af;
+        text-align: center;
+        padding: 0.75rem;
+        font-size: 0.85rem;
+    }
+</style>

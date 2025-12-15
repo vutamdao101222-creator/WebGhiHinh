@@ -51,22 +51,29 @@ namespace WebGhiHinh.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login(UserLoginDto request)
         {
-            var user = await _context.Users
-                .FirstOrDefaultAsync(u => u.Username == request.Username && u.PasswordHash == request.Password);
-
-            if (user == null)
+            try
             {
-                return Unauthorized("Sai tên đăng nhập hoặc mật khẩu.");
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == request.Username && u.PasswordHash == request.Password);
+
+                if (user == null)
+                {
+                    return Unauthorized("Sai tên đăng nhập hoặc mật khẩu.");
+                }
+
+                string token = CreateToken(user);
+
+                return Ok(new
+                {
+                    access_token = token, // Frontend của bạn đang dùng tên biến này? Hãy kiểm tra nếu code Blazor dùng 'token' hay 'access_token'
+                    token = token,        // Trả về cả 2 tên cho chắc ăn (để khớp với ScanningPage.razor)
+                    username = user.Username,
+                    role = user.Role
+                });
             }
-
-            string token = CreateToken(user);
-
-            return Ok(new
+            catch (Exception ex)
             {
-                access_token = token,
-                username = user.Username,
-                role = user.Role
-            });
+                return BadRequest(ex.InnerException?.Message ?? ex.Message);
+            }
         }
 
         private string CreateToken(User user)
@@ -75,21 +82,24 @@ namespace WebGhiHinh.Controllers
             var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(keyStr));
             var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
-            // 👇 SỬA Ở ĐÂY: Dùng chuỗi thường ("role", "name") thay vì ClaimTypes.Role (URL dài)
-            // Để khớp với cấu hình RoleClaimType = "role" trong Program.cs
-            var claims = new[]
+            // 👇 QUAN TRỌNG: Cấu hình các Claim
+            var claims = new List<Claim>
             {
-                new Claim("sub", user.Id.ToString()),    // ID người dùng (Subject)
+                // Key "Id" bắt buộc phải có để StationController nhận diện được người dùng
+                new Claim("Id", user.Id.ToString()),
+
+                new Claim("sub", user.Id.ToString()),    // ID người dùng (Subject - Chuẩn JWT)
                 new Claim("name", user.Username),        // Tên đăng nhập
                 new Claim("role", user.Role),            // Quyền (admin/user)
                 new Claim("FullName", user.FullName ?? "")
             };
 
-            var token = new JwtSecurityToken(_config["Jwt:Issuer"],
-              _config["Jwt:Audience"],
-              claims,
-              expires: DateTime.Now.AddDays(1),
-              signingCredentials: credentials);
+            var token = new JwtSecurityToken(
+                issuer: _config["Jwt:Issuer"],
+                audience: _config["Jwt:Audience"],
+                claims: claims,
+                expires: DateTime.Now.AddDays(1),
+                signingCredentials: credentials);
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }

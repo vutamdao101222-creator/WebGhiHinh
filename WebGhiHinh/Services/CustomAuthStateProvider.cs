@@ -1,131 +1,86 @@
 ﻿using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.JSInterop;
 using System.Security.Claims;
-using System.Text.Json;
+using System.Threading.Tasks;
+using System.Collections.Generic; // Thêm dòng này
 
 namespace WebGhiHinh.Services
 {
     public class CustomAuthStateProvider : AuthenticationStateProvider
     {
-        private readonly IJSRuntime _js;
+        private readonly IJSRuntime _jsRuntime;
+        private readonly AuthenticationState _anonymous;
 
-        // 👇 BIẾN NÀY QUAN TRỌNG: Lưu giữ người dùng hiện tại trong RAM
-        private ClaimsPrincipal _currentUser = new ClaimsPrincipal(new ClaimsIdentity());
-
-        public CustomAuthStateProvider(IJSRuntime js)
+        public CustomAuthStateProvider(IJSRuntime jsRuntime)
         {
-            _js = js;
+            _jsRuntime = jsRuntime;
+            _anonymous = new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
         }
 
-        // 1. Hàm này được gọi mỗi khi chuyển trang để kiểm tra quyền
-        public override Task<AuthenticationState> GetAuthenticationStateAsync()
-        {
-            // Trả về người dùng đang lưu trong biến _currentUser thay vì luôn trả về Anonymous
-            return Task.FromResult(new AuthenticationState(_currentUser));
-        }
-
-        // 2. Load token từ LocalStorage (Dùng khi F5 trang)
-        public async Task LoadUserFromLocalStorage()
+        public override async Task<AuthenticationState> GetAuthenticationStateAsync()
         {
             try
             {
-                var token = await _js.InvokeAsync<string>("auth.get");
+                var token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "token");
 
-                if (!string.IsNullOrEmpty(token))
+                if (string.IsNullOrEmpty(token))
+                    return _anonymous;
+
+                var username = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "username") ?? "User";
+                var role = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "role") ?? "";
+
+                // Tạo danh sách claims
+                var claims = new List<Claim>
                 {
-                    // Giải mã token và cập nhật biến _currentUser
-                    _currentUser = BuildUserFromToken(token);
-                }
-                else
+                    new Claim(ClaimTypes.Name, username)
+                };
+
+                if (!string.IsNullOrEmpty(role))
                 {
-                    // Nếu không có token -> Về ẩn danh
-                    _currentUser = new ClaimsPrincipal(new ClaimsIdentity());
+                    claims.Add(new Claim(ClaimTypes.Role, role));
                 }
+
+                var identity = new ClaimsIdentity(claims, "jwt");
+                return new AuthenticationState(new ClaimsPrincipal(identity));
             }
             catch
             {
-                // Lỗi JS (do prerender) -> Bỏ qua
+                return _anonymous;
             }
-
-            // Thông báo cho toàn bộ App biết trạng thái đã thay đổi
-            NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentUser)));
         }
 
-        // 3. Đăng nhập (Gọi từ LoginPage)
-        public async Task MarkUserAsAuthenticated(string token)
+        // ✅ ĐÃ SỬA: Thêm tham số tùy chọn (string? ... = null) để tránh lỗi thiếu tham số
+        public Task MarkUserAsAuthenticated(string username, string? token = null, string? role = null)
         {
-            // Cập nhật biến _currentUser ngay lập tức
-            _currentUser = BuildUserFromToken(token);
-
-            // Thông báo cập nhật giao diện
-            NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentUser)));
-
-            // Lưu xuống LocalStorage (phòng hờ code JS bên ngoài chưa chạy)
-            try { await _js.InvokeVoidAsync("auth.set", token); } catch { }
-        }
-
-        // 4. Đăng xuất
-        public async Task MarkUserAsLoggedOut()
-        {
-            _currentUser = new ClaimsPrincipal(new ClaimsIdentity());
-
-            try { await _js.InvokeVoidAsync("auth.clear"); } catch { }
-
-            NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentUser)));
-        }
-
-        // ==========================
-        // ===== Helper Methods =====
-        // ==========================
-
-        private ClaimsPrincipal BuildUserFromToken(string token)
-        {
-            var claims = ParseClaimsFromJwt(token);
-            var identity = new ClaimsIdentity(claims, "jwt"); // "jwt" là authentication type, bắt buộc phải có
-            return new ClaimsPrincipal(identity);
-        }
-
-        private IEnumerable<Claim> ParseClaimsFromJwt(string token)
-        {
-            var claims = new List<Claim>();
-            var payload = token.Split('.')[1];
-            var jsonBytes = ParseBase64WithoutPadding(payload);
-            var keyValuePairs = JsonSerializer.Deserialize<Dictionary<string, object>>(jsonBytes);
-
-            foreach (var kvp in keyValuePairs)
+            var claims = new List<Claim>
             {
-                string key = kvp.Key.ToLower();
-                object value = kvp.Value;
+                new Claim(ClaimTypes.Name, username)
+            };
 
-                // Fix Role
-                if (key == "role") key = ClaimTypes.Role;
-                else if (key == "nameid") key = ClaimTypes.NameIdentifier;
-                else if (key == "unique_name" || key == "name") key = ClaimTypes.Name;
-
-                // Xử lý trường hợp Role là mảng JSON []
-                if (value is JsonElement element && element.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var item in element.EnumerateArray())
-                    {
-                        claims.Add(new Claim(key, item.ToString()));
-                    }
-                }
-                else
-                {
-                    claims.Add(new Claim(key, value?.ToString() ?? ""));
-                }
+            if (!string.IsNullOrEmpty(role))
+            {
+                claims.Add(new Claim(ClaimTypes.Role, role));
             }
-            return claims;
+
+            var identity = new ClaimsIdentity(claims, "jwt");
+            var user = new ClaimsPrincipal(identity);
+
+            // Báo cho app biết trạng thái đã thay đổi
+            NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(user)));
+
+            return Task.CompletedTask;
         }
 
-        private byte[] ParseBase64WithoutPadding(string base64)
+        public Task MarkUserAsLoggedOut()
         {
-            switch (base64.Length % 4)
-            {
-                case 2: base64 += "=="; break;
-                case 3: base64 += "="; break;
-            }
-            return Convert.FromBase64String(base64);
+            NotifyAuthenticationStateChanged(Task.FromResult(_anonymous));
+            return Task.CompletedTask;
+        }
+
+        public async Task LoadUserFromLocalStorage()
+        {
+            NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
+            await Task.CompletedTask;
         }
     }
 }

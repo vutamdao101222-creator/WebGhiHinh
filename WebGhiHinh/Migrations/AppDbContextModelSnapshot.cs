@@ -30,16 +30,15 @@ namespace WebGhiHinh.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("RtspUrl")
+                    b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("WebrtcName")
+                    b.Property<string>("RtspUrl")
+                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
@@ -55,22 +54,26 @@ namespace WebGhiHinh.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int?>("CameraId")
-                        .HasColumnType("int");
-
                     b.Property<int?>("CurrentUserId")
                         .HasColumnType("int");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("OverviewCameraId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("QrCameraId")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CameraId");
-
                     b.HasIndex("CurrentUserId");
+
+                    b.HasIndex("OverviewCameraId");
+
+                    b.HasIndex("QrCameraId");
 
                     b.ToTable("Stations");
                 });
@@ -158,17 +161,25 @@ namespace WebGhiHinh.Migrations
 
             modelBuilder.Entity("WebGhiHinh.Models.Station", b =>
                 {
-                    b.HasOne("WebGhiHinh.Models.Camera", "Camera")
-                        .WithMany()
-                        .HasForeignKey("CameraId");
-
                     b.HasOne("WebGhiHinh.Models.User", "CurrentUser")
                         .WithMany()
                         .HasForeignKey("CurrentUserId");
 
-                    b.Navigation("Camera");
+                    b.HasOne("WebGhiHinh.Models.Camera", "OverviewCamera")
+                        .WithMany()
+                        .HasForeignKey("OverviewCameraId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("WebGhiHinh.Models.Camera", "QrCamera")
+                        .WithMany()
+                        .HasForeignKey("QrCameraId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("CurrentUser");
+
+                    b.Navigation("OverviewCamera");
+
+                    b.Navigation("QrCamera");
                 });
 
             modelBuilder.Entity("WebGhiHinh.Models.VideoLog", b =>

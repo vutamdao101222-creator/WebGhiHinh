@@ -8,7 +8,6 @@
 @inject HttpClient Http
 @inject IJSRuntime JS
 
-@* Tắt Prerender để đảm bảo JS chạy đúng và không bị lỗi Login Loop *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 <PageTitle>Đăng nhập</PageTitle>
@@ -47,7 +46,7 @@
             @if (!string.IsNullOrEmpty(error))
             {
                 <p class="login-error"
-                   style="background:#fee2e2;padding:10px;border-radius:8px;border:1px solid red;">
+                   style="background:#fee2e2;padding:10px;border-radius:8px;border:1px solid red; color: #991b1b;">
                     @error
                 </p>
             }
@@ -60,10 +59,17 @@
                 }
                 else
                 {
-
                     <span>Đăng nhập</span>
                 }
             </button>
+
+            <div style="margin-top: 1.5rem; text-align: center; font-size: 0.95rem;">
+                <span style="color: #6b7280;">Bạn chưa có tài khoản?</span>
+                <a href="/register"
+                   style="color: #3b82f6; text-decoration: none; font-weight: 600; margin-left: 5px; transition: color 0.2s;">
+                    ĐĂNG KÝ NGAY
+                </a>
+            </div>
         </EditForm>
     </div>
 </div>
@@ -82,12 +88,13 @@
 
         try
         {
-            // Gọi API đăng nhập
+            // 1. Gọi API đăng nhập
             var response = await Http.PostAsJsonAsync("api/auth/login", loginModel);
 
             if (!response.IsSuccessStatusCode)
             {
-                error = "Sai tên đăng nhập hoặc mật khẩu!";
+                var content = await response.Content.ReadAsStringAsync();
+                error = string.IsNullOrEmpty(content) ? "Đăng nhập thất bại (Lỗi server)" : content;
                 return;
             }
 
@@ -95,34 +102,47 @@
 
             if (result is null || string.IsNullOrEmpty(result.access_token))
             {
-                error = "Token nhận về không hợp lệ!";
+                error = "Lỗi: Không nhận được Token từ server!";
                 return;
             }
 
-            // 1. LƯU TOKEN VÀ USER INFO VÀO LOCALSTORAGE
+            // 2. Lưu Token và thông tin vào LocalStorage
             await JS.InvokeVoidAsync("localStorage.setItem", "token", result.access_token);
-            await JS.InvokeVoidAsync("localStorage.setItem", "username", result.username);
-            await JS.InvokeVoidAsync("localStorage.setItem", "role", result.role);
+            
+            if (!string.IsNullOrEmpty(result.username))
+                await JS.InvokeVoidAsync("localStorage.setItem", "username", result.username);
+            
+            if (!string.IsNullOrEmpty(result.role))
+                await JS.InvokeVoidAsync("localStorage.setItem", "role", result.role);
 
-            // 2. CẬP NHẬT TRẠNG THÁI ĐĂNG NHẬP CHO BLAZOR
-            if (AuthStateProvider is CustomAuthStateProvider auth)
+            // 3. Cập nhật trạng thái Authentication (QUAN TRỌNG: Gọi đủ 3 tham số)
+            if (AuthStateProvider is CustomAuthStateProvider authProvider)
             {
-                await auth.MarkUserAsAuthenticated(result.access_token);
+                // ✅ SỬA LỖI: Truyền đủ username, token, role để khớp với CustomAuthStateProvider
+                await authProvider.MarkUserAsAuthenticated(result.username, result.access_token, result.role);
             }
 
-            // Đợi 1 chút để State được cập nhật chắc chắn
+            // 4. Đợi một chút để state cập nhật xong
             await Task.Delay(100);
 
-            // 3. CHUYỂN TRANG (QUAN TRỌNG: KHÔNG DÙNG THAM SỐ TRUE)
-            // Nếu dùng true, trang sẽ load lại từ đầu -> Mất trạng thái login -> Bị đẩy về lại trang login
-            if (result.role?.ToLower() == "admin")
-                Nav.NavigateTo("/admin");
+            // 5. Chuyển trang dựa trên Role
+            var role = result.role?.Trim().ToLowerInvariant();
+
+            if (role == "admin" || role == "admin1")
+            {
+                // Admin -> Dashboard Admin
+                Nav.NavigateTo("/admin", true); 
+            }
             else
-                Nav.NavigateTo("/scan");
+            {
+                // User -> Trang Live Camera
+                Nav.NavigateTo("/live", true);
+            }
         }
         catch (Exception ex)
         {
-            error = $"Lỗi hệ thống: {ex.Message}";
+            error = $"Lỗi kết nối: {ex.Message}";
+            Console.WriteLine(ex.ToString());
         }
         finally
         {
@@ -155,8 +175,8 @@
 
     public class LoginResponse
     {
-        public string access_token { get; set; }
-        public string username { get; set; }
-        public string role { get; set; }
+        public string access_token { get; set; } = "";
+        public string username { get; set; } = "";
+        public string role { get; set; } = "";
     }
 }

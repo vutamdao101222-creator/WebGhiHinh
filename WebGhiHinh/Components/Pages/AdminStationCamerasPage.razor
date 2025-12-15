@@ -1,0 +1,191 @@
+﻿@* ===============================
+   FILE: Components/Pages/AdminStationCamerasPage.razor
+   Route gán 2 camera/trạm
+   =============================== *@
+@page "/admin/stations-cameras"
+@using WebGhiHinh.Models
+@using WebGhiHinh.Models.Dto
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Gán Camera Cho Trạm</PageTitle>
+
+<div class="container py-3">
+    <h3 class="mb-3">Gán 2 Camera / Trạm</h3>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert @statusClass py-2">@statusMessage</div>
+    }
+
+    @if (loading)
+    {
+        <div class="text-muted">Đang tải...</div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 180px;">Trạm</th>
+                        <th>Overview Camera (Quay tổng thể)</th>
+                        <th>QR Camera (Đọc QR)</th>
+                        <th style="width: 110px;"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in stations)
+                    {
+                        <tr>
+                            <td class="fw-semibold">@s.Name</td>
+
+                            <td>
+                                <select class="form-select form-select-sm"
+                                        @bind="s.OverviewCameraIdLocal">
+                                    <option value="">-- Chưa gán --</option>
+                                    @foreach (var c in cameras)
+                                    {
+                                        <option value="@c.Id">@c.Name</option>
+                                    }
+                                </select>
+                                @if (!string.IsNullOrWhiteSpace(GetCamDesc(s.OverviewCameraIdLocal)))
+                                {
+                                    <div class="small text-muted mt-1 text-truncate">
+                                        @GetCamDesc(s.OverviewCameraIdLocal)
+                                    </div>
+                                }
+                            </td>
+
+                            <td>
+                                <select class="form-select form-select-sm"
+                                        @bind="s.QrCameraIdLocal">
+                                    <option value="">-- Chưa gán --</option>
+                                    @foreach (var c in cameras)
+                                    {
+                                        <option value="@c.Id">@c.Name</option>
+                                    }
+                                </select>
+                                @if (!string.IsNullOrWhiteSpace(GetCamDesc(s.QrCameraIdLocal)))
+                                {
+                                    <div class="small text-muted mt-1 text-truncate">
+                                        @GetCamDesc(s.QrCameraIdLocal)
+                                    </div>
+                                }
+                            </td>
+
+                            <td>
+                                <button class="btn btn-sm btn-primary w-100"
+                                        disabled="@savingIds.Contains(s.Id)"
+                                        @onclick="() => SaveRow(s)">
+                                    @(savingIds.Contains(s.Id) ? "Đang lưu..." : "Lưu")
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private sealed class StationRowVm
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+
+        public int? OverviewCameraIdLocal { get; set; }
+        public int? QrCameraIdLocal { get; set; }
+    }
+
+    private bool loading = true;
+    private readonly HashSet<int> savingIds = new();
+
+    private List<Camera> cameras = new();
+    private List<StationRowVm> stations = new();
+
+    private string statusMessage = "";
+    private string statusClass = "alert-info";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAll();
+    }
+
+    private async Task LoadAll()
+    {
+        loading = true;
+        statusMessage = "";
+        try
+        {
+            cameras = await Http.GetFromJsonAsync<List<Camera>>("api/camera") ?? new();
+
+            var stationDtos = await Http.GetFromJsonAsync<List<StationDto>>("api/station") ?? new();
+            stations = stationDtos.Select(s => new StationRowVm
+            {
+                Id = s.Id,
+                Name = s.Name,
+                OverviewCameraIdLocal = s.OverviewCameraId,
+                QrCameraIdLocal = s.QrCameraId
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            statusClass = "alert-danger";
+            statusMessage = "Lỗi tải dữ liệu: " + ex.Message;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private string? GetCamDesc(int? id)
+    {
+        if (!id.HasValue) return null;
+        var cam = cameras.FirstOrDefault(x => x.Id == id.Value);
+        return cam?.RtspUrl;
+    }
+
+    private async Task SaveRow(StationRowVm s)
+    {
+        if (savingIds.Contains(s.Id)) return;
+        savingIds.Add(s.Id);
+        statusMessage = "";
+
+        try
+        {
+            var req = new SetStationCamerasRequest
+            {
+                StationId = s.Id,
+                OverviewCameraId = s.OverviewCameraIdLocal,
+                QrCameraId = s.QrCameraIdLocal
+            };
+
+            var res = await Http.PostAsJsonAsync("api/station/set-cameras", req);
+
+            if (res.IsSuccessStatusCode)
+            {
+                statusClass = "alert-success";
+                statusMessage = $"Đã lưu camera cho trạm {s.Name}.";
+            }
+            else
+            {
+                statusClass = "alert-danger";
+                statusMessage = $"Lỗi lưu trạm {s.Name}: {res.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            statusClass = "alert-danger";
+            statusMessage = $"Lỗi lưu trạm {s.Name}: {ex.Message}";
+        }
+        finally
+        {
+            savingIds.Remove(s.Id);
+        }
+    }
+}

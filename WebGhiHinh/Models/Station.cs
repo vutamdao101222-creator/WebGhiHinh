@@ -1,26 +1,31 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿// FILE: Models/Station.cs
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using WebGhiHinh.Models;
 
 namespace WebGhiHinh.Models
 {
     public class Station
     {
-        [Key]
         public int Id { get; set; }
 
         [Required]
         [MaxLength(100)]
-        public string Name { get; set; } = string.Empty; // VD: TRẠM 1
+        public string Name { get; set; } = string.Empty;
 
-        // Liên kết: Trạm này đang gắn với Camera nào?
-        public int? CameraId { get; set; }
-        [ForeignKey("CameraId")]
-        public Camera? Camera { get; set; }
+        // ====== 2 CAMERAS ======
+        public int? OverviewCameraId { get; set; }
+        public int? QrCameraId { get; set; }
 
-        // Liên kết: Ai đang ngồi trạm này? (Có thể null nếu trống)
+        [ForeignKey(nameof(OverviewCameraId))]
+        public Camera? OverviewCamera { get; set; }
+
+        [ForeignKey(nameof(QrCameraId))]
+        public Camera? QrCamera { get; set; }
+
+        // ====== CURRENT USER ======
         public int? CurrentUserId { get; set; }
-        [ForeignKey("CurrentUserId")]
+
+        [ForeignKey(nameof(CurrentUserId))]
         public User? CurrentUser { get; set; }
     }
 }
