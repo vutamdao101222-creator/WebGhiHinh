@@ -1,0 +1,52 @@
+﻿@using Microsoft.JSInterop
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="video-container">
+    @* muted autoplay playsinline: Bắt buộc để trình duyệt không chặn video tự chạy *@
+    <video id="@elementId" class="whep-video" muted autoplay playsinline></video>
+</div>
+
+<style>
+    .video-container {
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+    }
+
+    .whep-video {
+        width: 100%;
+        height: 100%;
+        object-fit: fill;
+    }
+</style>
+
+@code {
+    [Parameter] public string src { get; set; } = "";
+
+    // Tạo ID ngẫu nhiên cho thẻ video để không bị trùng
+    private string elementId = "whep-" + Guid.NewGuid().ToString("N");
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !string.IsNullOrEmpty(src))
+        {
+            // Đợi 1 chút cho HTML vẽ xong
+            await Task.Delay(100);
+
+            // Gọi hàm JS 'startWhep' nằm bên App.razor
+            await JS.InvokeVoidAsync("startWhep", elementId, src);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            // Gọi hàm JS 'stopWhep' để ngắt kết nối, giải phóng RAM
+            await JS.InvokeVoidAsync("stopWhep", elementId);
+        }
+        catch { }
+    }
+}

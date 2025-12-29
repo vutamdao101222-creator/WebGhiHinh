@@ -1,14 +1,7 @@
 ﻿@page "/login"
-@using Microsoft.AspNetCore.Components.Authorization
+@layout Layout.LoginLayout 
 @using Microsoft.AspNetCore.Components.Web
-@using System.ComponentModel.DataAnnotations
-@using WebGhiHinh.Services
-@inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager Nav
-@inject HttpClient Http
-@inject IJSRuntime JS
-
-@rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 <PageTitle>Đăng nhập</PageTitle>
 
@@ -22,161 +15,47 @@
         </div>
     </div>
 
-    <div class="login-card @(isGlowing ? "glow-strong" : "")">
+    <div class="login-card">
         <h1 class="login-title">Đăng nhập</h1>
 
-        <EditForm Model="@loginModel" OnValidSubmit="HandleLogin">
-            <DataAnnotationsValidator />
+        <form action="/account/login" method="post">
+            
+            <AntiforgeryToken />
 
             <div class="input-group">
-                <InputText @bind-Value="loginModel.Username"
-                           class="login-input"
-                           placeholder="Tên đăng nhập"
-                           @oninput="TriggerGlow" />
+                <input name="username" class="login-input" placeholder="Tên đăng nhập" required />
             </div>
 
             <div class="input-group">
-                <InputText @bind-Value="loginModel.Password"
-                           type="password"
-                           class="login-input"
-                           placeholder="Mật khẩu"
-                           @oninput="TriggerGlow" />
+                <input name="password" type="password" class="login-input" placeholder="Mật khẩu" required />
             </div>
 
-            @if (!string.IsNullOrEmpty(error))
+            @if (!string.IsNullOrEmpty(ErrorMessage))
             {
-                <p class="login-error"
-                   style="background:#fee2e2;padding:10px;border-radius:8px;border:1px solid red; color: #991b1b;">
-                    @error
-                </p>
+                <div class="login-error" 
+                     style="background:#fee2e2; padding:10px; border-radius:8px; border:1px solid #ef4444; color: #991b1b; margin-top: 15px; font-size: 0.9rem;">
+                    ⚠️ @ErrorMessage
+                </div>
             }
 
-            <button class="btn" type="submit" disabled="@loading">
-                @if (loading)
-                {
-                    <div class="spinner"></div>
-                    <span>Đang xử lý...</span>
-                }
-                else
-                {
-                    <span>Đăng nhập</span>
-                }
+            <button class="btn" type="submit" style="margin-top: 25px;">
+                <span>Đăng nhập</span>
             </button>
+        </form>
 
-            <div style="margin-top: 1.5rem; text-align: center; font-size: 0.95rem;">
-                <span style="color: #6b7280;">Bạn chưa có tài khoản?</span>
-                <a href="/register"
-                   style="color: #3b82f6; text-decoration: none; font-weight: 600; margin-left: 5px; transition: color 0.2s;">
-                    ĐĂNG KÝ NGAY
-                </a>
-            </div>
-        </EditForm>
+        <div style="margin-top: 1.5rem; text-align: center; font-size: 0.95rem;">
+            <span style="color: #6b7280;">Bạn chưa có tài khoản?</span>
+            <a href="/register" 
+               style="color: #3b82f6; text-decoration: none; font-weight: 600; margin-left: 5px; transition: color 0.2s;">
+                ĐĂNG KÝ NGAY
+            </a>
+        </div>
     </div>
 </div>
 
 @code {
-    private LoginDto loginModel { get; set; } = new();
-    private bool loading = false;
-    private string error = "";
-    private bool isGlowing = false;
-
-    private async Task HandleLogin()
-    {
-        loading = true;
-        error = "";
-        StateHasChanged();
-
-        try
-        {
-            // 1. Gọi API đăng nhập
-            var response = await Http.PostAsJsonAsync("api/auth/login", loginModel);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync();
-                error = string.IsNullOrEmpty(content) ? "Đăng nhập thất bại (Lỗi server)" : content;
-                return;
-            }
-
-            var result = await response.Content.ReadFromJsonAsync<LoginResponse>();
-
-            if (result is null || string.IsNullOrEmpty(result.access_token))
-            {
-                error = "Lỗi: Không nhận được Token từ server!";
-                return;
-            }
-
-            // 2. Lưu Token và thông tin vào LocalStorage
-            await JS.InvokeVoidAsync("localStorage.setItem", "token", result.access_token);
-            
-            if (!string.IsNullOrEmpty(result.username))
-                await JS.InvokeVoidAsync("localStorage.setItem", "username", result.username);
-            
-            if (!string.IsNullOrEmpty(result.role))
-                await JS.InvokeVoidAsync("localStorage.setItem", "role", result.role);
-
-            // 3. Cập nhật trạng thái Authentication (QUAN TRỌNG: Gọi đủ 3 tham số)
-            if (AuthStateProvider is CustomAuthStateProvider authProvider)
-            {
-                // ✅ SỬA LỖI: Truyền đủ username, token, role để khớp với CustomAuthStateProvider
-                await authProvider.MarkUserAsAuthenticated(result.username, result.access_token, result.role);
-            }
-
-            // 4. Đợi một chút để state cập nhật xong
-            await Task.Delay(100);
-
-            // 5. Chuyển trang dựa trên Role
-            var role = result.role?.Trim().ToLowerInvariant();
-
-            if (role == "admin" || role == "admin1")
-            {
-                // Admin -> Dashboard Admin
-                Nav.NavigateTo("/admin", true); 
-            }
-            else
-            {
-                // User -> Trang Live Camera
-                Nav.NavigateTo("/live", true);
-            }
-        }
-        catch (Exception ex)
-        {
-            error = $"Lỗi kết nối: {ex.Message}";
-            Console.WriteLine(ex.ToString());
-        }
-        finally
-        {
-            loading = false;
-            StateHasChanged();
-        }
-    }
-
-    private void TriggerGlow()
-    {
-        isGlowing = true;
-        Task.Delay(300).ContinueWith(_ =>
-        {
-            InvokeAsync(() =>
-            {
-                isGlowing = false;
-                StateHasChanged();
-            });
-        });
-    }
-
-    public class LoginDto
-    {
-        [Required(ErrorMessage = "Vui lòng nhập tên đăng nhập")]
-        public string Username { get; set; } = "";
-
-        [Required(ErrorMessage = "Vui lòng nhập mật khẩu")]
-        public string Password { get; set; } = "";
-    }
-
-    public class LoginResponse
-    {
-        public string access_token { get; set; } = "";
-        public string username { get; set; } = "";
-        public string role { get; set; } = "";
-    }
+    // 👇 Nhận thông báo lỗi từ URL 
+    // Ví dụ khi Controller trả về: /login?error=Sai tài khoản hoặc mật khẩu
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? ErrorMessage { get; set; }
 }

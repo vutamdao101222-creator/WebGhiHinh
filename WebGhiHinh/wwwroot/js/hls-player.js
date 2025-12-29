@@ -1,5 +1,4 @@
-﻿// File: wwwroot/js/scan-hls.js
-window.hlsPlayer = {
+﻿window.hlsPlayer = {
     start: function (videoElementId, url) {
         var video = document.getElementById(videoElementId);
         if (!video) return;

@@ -1,20 +1,17 @@
 ﻿using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.JSInterop;
 using System.Security.Claims;
-using System.Threading.Tasks;
-using System.Collections.Generic; // Thêm dòng này
 
 namespace WebGhiHinh.Services
 {
     public class CustomAuthStateProvider : AuthenticationStateProvider
     {
         private readonly IJSRuntime _jsRuntime;
-        private readonly AuthenticationState _anonymous;
+        private readonly AuthenticationState _anonymous = new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
 
         public CustomAuthStateProvider(IJSRuntime jsRuntime)
         {
             _jsRuntime = jsRuntime;
-            _anonymous = new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
         }
 
         public override async Task<AuthenticationState> GetAuthenticationStateAsync()
@@ -29,10 +26,10 @@ namespace WebGhiHinh.Services
                 var username = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "username") ?? "User";
                 var role = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "role") ?? "";
 
-                // Tạo danh sách claims
                 var claims = new List<Claim>
                 {
-                    new Claim(ClaimTypes.Name, username)
+                    new Claim(ClaimTypes.Name, username),
+                    new Claim("sub", username)
                 };
 
                 if (!string.IsNullOrEmpty(role))
@@ -41,7 +38,9 @@ namespace WebGhiHinh.Services
                 }
 
                 var identity = new ClaimsIdentity(claims, "jwt");
-                return new AuthenticationState(new ClaimsPrincipal(identity));
+                var user = new ClaimsPrincipal(identity);
+
+                return new AuthenticationState(user);
             }
             catch
             {
@@ -49,38 +48,33 @@ namespace WebGhiHinh.Services
             }
         }
 
-        // ✅ ĐÃ SỬA: Thêm tham số tùy chọn (string? ... = null) để tránh lỗi thiếu tham số
-        public Task MarkUserAsAuthenticated(string username, string? token = null, string? role = null)
+        public void MarkUserAsAuthenticated(string username, string token, string role)
         {
             var claims = new List<Claim>
             {
-                new Claim(ClaimTypes.Name, username)
+                new Claim(ClaimTypes.Name, username),
+                new Claim(ClaimTypes.Role, role)
             };
-
-            if (!string.IsNullOrEmpty(role))
-            {
-                claims.Add(new Claim(ClaimTypes.Role, role));
-            }
 
             var identity = new ClaimsIdentity(claims, "jwt");
             var user = new ClaimsPrincipal(identity);
 
-            // Báo cho app biết trạng thái đã thay đổi
             NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(user)));
-
-            return Task.CompletedTask;
         }
 
-        public Task MarkUserAsLoggedOut()
+        public async Task MarkUserAsLoggedOut()
         {
+            await _jsRuntime.InvokeVoidAsync("localStorage.clear");
             NotifyAuthenticationStateChanged(Task.FromResult(_anonymous));
-            return Task.CompletedTask;
         }
 
+        // 👇👇👇 ĐÂY LÀ HÀM BẠN ĐANG THIẾU 👇👇👇
         public async Task LoadUserFromLocalStorage()
         {
-            NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
-            await Task.CompletedTask;
+            // Hàm này buộc Provider chạy lại GetAuthenticationStateAsync
+            // Giúp UI cập nhật ngay lập tức sau khi F5 hoặc Login
+            var state = await GetAuthenticationStateAsync();
+            NotifyAuthenticationStateChanged(Task.FromResult(state));
         }
     }
 }

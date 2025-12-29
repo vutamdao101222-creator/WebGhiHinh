@@ -1,15 +1,15 @@
 ﻿// wwwroot/js/scan-overlay.js
 (function () {
     if (!window.signalR) {
-        console.warn("[scanOverlay] SignalR client is not loaded!");
+        console.warn("[scanOverlay] SignalR client not loaded");
         return;
     }
 
-    console.log("[scanOverlay] Connecting to SignalR...");
+    console.log("[scanOverlay] loading...");
 
     let dotNetRef = null;
 
-    // Blazor gọi hàm này: JS.InvokeVoidAsync("scanOverlay.init", objRef);
+    // Blazor gọi: JS.InvokeVoidAsync("scanOverlay.init", objRef)
     function init(ref) {
         dotNetRef = ref;
         console.log("[scanOverlay] init from Blazor");
@@ -41,7 +41,7 @@
     function handlePayload(payload) {
         if (!payload || !dotNetRef) return;
 
-        const station = payload.stationName || payload.station || payload.StationName;
+        const station = payload.station || payload.stationName || payload.StationName;
         const code = payload.code || payload.Code;
         const x = payload.x ?? payload.X ?? 0;
         const y = payload.y ?? payload.Y ?? 0;
@@ -52,9 +52,12 @@
 
         console.log("[scanOverlay] HIT:", station, code);
 
-        // Gọi lại LiveCameraPage.OnScanResultFromServer(...)
-        dotNetRef.invokeMethodAsync("OnScanResultFromServer", station, code, x, y, w, h)
-            .catch(err => console.error("[scanOverlay] invoke error:", err));
+        dotNetRef.invokeMethodAsync(
+            "OnScanResultFromServer",
+            station,
+            code,
+            x, y, w, h
+        ).catch(err => console.error("[scanOverlay] invoke error", err));
 
         beep();
     }
@@ -62,10 +65,17 @@
     connection.on("ScanResult", handlePayload);
     connection.on("ScanHit", handlePayload);
 
-    connection
-        .start()
-        .then(() => console.log("[scanOverlay] Connected successfully!!"))
-        .catch(err => console.error("[scanOverlay] connect error:", err));
+    connection.start()
+        .then(() => {
+            console.log("[scanOverlay] SignalR connected");
+
+            // 🔥 QUAN TRỌNG: báo UI biết overlay đã sẵn sàng
+            if (dotNetRef) {
+                dotNetRef.invokeMethodAsync("OnScanOverlayReady")
+                    .catch(err => console.error(err));
+            }
+        })
+        .catch(err => console.error("[scanOverlay] connect error", err));
 
     window.scanOverlay = {
         init: init

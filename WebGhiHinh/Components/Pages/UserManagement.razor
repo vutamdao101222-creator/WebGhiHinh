@@ -1,188 +1,176 @@
-﻿@* FILE: Components/Pages/AdminUsersPage.razor *@
-@page "/admin/users"
-@using Microsoft.AspNetCore.Components.Authorization
-@using WebGhiHinh.Services
-@inject HttpClient Http
+﻿@page "/admin/users"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using WebGhiHinh.Data
+@using WebGhiHinh.Models
+@using System.ComponentModel.DataAnnotations
+
+@* 👇 Bắt buộc có quyền Admin mới vào được *@
+@attribute [Authorize(Roles = "admin")]
+
+@inject AppDbContext DbContext
 @inject IJSRuntime JS
 @inject NavigationManager Nav
-@inject AuthenticationStateProvider AuthStateProvider
 
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 <PageTitle>Quản lý Tài khoản</PageTitle>
 
-@if (isLoading)
-{
-    <div class="page-container" style="display:flex; justify-content:center; align-items:center; height:80vh;">
-        <div class="spinner"></div>
-        <span style="margin-left: 10px; color: #666;">Đang kiểm tra quyền truy cập...</span>
+<div class="page-container fade-in">
+    <div class="page-header">
+        <h1>👥 Quản lý Tài khoản</h1>
+        <div class="header-actions">
+            <button class="btn btn-secondary btn-sm" @onclick='() => Nav.NavigateTo("/admin")'>⬅ Quay lại</button>
+            <button class="btn btn-primary btn-sm" @onclick="OpenCreateModal">+ Thêm User</button>
+            <a href="/account/logout" class="btn btn-warning btn-sm">Đăng xuất</a>
+        </div>
     </div>
-}
-else if (isAuthorized)
-{
-    <div class="page-container fade-in">
-        <div class="page-header">
-            <h1>👥 Quản lý Tài khoản</h1>
-            <div class="header-actions">
-                <button class="btn btn-secondary btn-sm" @onclick='() => Nav.NavigateTo("/admin")'>⬅ Quay lại</button>
-                <button class="btn btn-primary btn-sm" @onclick="OpenCreateModal">+ Thêm User</button>
-                <button class="btn btn-warning btn-sm" @onclick="Logout">Đăng xuất</button>
+
+    <div class="page-section">
+        @if (!string.IsNullOrEmpty(uiMessage))
+        {
+            <div class="alert alert-info alert-dismissible fade show" role="alert" style="margin: 20px;">
+                @uiMessage
+                <button type="button" class="btn-close" @onclick='() => uiMessage = ""'></button>
             </div>
-        </div>
+        }
 
-        <div class="page-section">
-            @if (!string.IsNullOrEmpty(loadError))
-            {
-                <div class="alert alert-danger" style="margin: 20px;">
-                    <strong>⚠️ Lỗi tải dữ liệu:</strong> @loadError
-                </div>
-            }
-
-            @if (!string.IsNullOrEmpty(uiMessage))
-            {
-                <div class="alert alert-info" style="margin: 20px;">
-                    @uiMessage
-                </div>
-            }
-
-            @if (users == null)
-            {
+        @if (users == null)
+        {
+            <div class="d-flex justify-content-center py-5">
                 <div class="spinner"></div>
-            }
-            else if (users.Count == 0)
-            {
-                <p class="text-muted" style="padding: 20px;">Chưa có tài khoản nào.</p>
-            }
-            else
-            {
-                <div class="table-responsive">
-                    <table class="table admin-table">
-                        <thead>
+            </div>
+        }
+        else if (users.Count == 0)
+        {
+            <p class="text-muted text-center py-5">Chưa có tài khoản nào trong hệ thống.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table admin-table align-middle">
+                    <thead>
+                        <tr>
+                            <th style="width:50px;">ID</th>
+                            <th>Username</th>
+                            <th>Họ tên</th>
+                            <th>Mã NV</th>
+                            <th>Payload QR</th>
+                            <th style="width:120px;">Vai trò</th>
+                            <th style="width:150px;">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var u in users)
+                        {
                             <tr>
-                                <th style="width:70px;">ID</th>
-                                <th>Username</th>
-                                <th>Họ tên</th>
-                                <th style="width:140px;">Mã NV</th>
-                                <th style="width:220px;">QR Nhân viên</th>
-                                <th style="width:170px;">Vai trò</th>
-                                <th style="width:140px;">Hành động</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var u in users)
-                            {
-                                <tr>
-                                    <td>@u.Id</td>
-                                    <td><strong>@u.Username</strong></td>
-                                    <td>@u.FullName</td>
-                                    <td>
-                                        @if (!string.IsNullOrWhiteSpace(u.EmployeeCode))
-                                        {
-                                            <span class="badge bg-light text-dark border">@u.EmployeeCode</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted small">Chưa có</span>
-                                        }
-                                    </td>
+                                <td>@u.Id</td>
+                                <td><strong>@u.Username</strong></td>
+                                <td>@u.FullName</td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(u.EmployeeCode))
+                                    {
+                                        <span class="badge bg-light text-dark border">@u.EmployeeCode</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">-</span>
+                                    }
+                                </td>
 
-                                    <td>
-                                        <div class="d-flex align-items-center gap-1 flex-wrap">
-                                            <button class="btn btn-sm btn-outline-primary"
-                                                    title="Lấy payload QR nhân viên"
-                                                    @onclick="() => FetchEmployeePayload(u)">
-                                                🧾 Payload
-                                            </button>
-
-                                            <button class="btn btn-sm btn-outline-success"
-                                                    disabled="@(!employeePayloads.ContainsKey(u.Id) || string.IsNullOrWhiteSpace(employeePayloads[u.Id]))"
-                                                    title="Copy payload"
-                                                    @onclick="() => CopyEmployeePayload(u)">
-                                                📋 Copy
-                                            </button>
-
-                                            <button class="btn btn-sm btn-outline-dark"
-                                                    title="Xem QR để in"
-                                                    @onclick="() => ShowEmployeeQr(u)">
-                                                🖨️ Xem QR
-                                            </button>
+                                <td>
+                                    @{
+                                        // Tạo chuỗi Payload QR tại chỗ (Logic: EMPLOYEE:ID:CODE)
+                                        var payload = GenerateQrPayload(u);
+                                    }
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="small text-muted text-truncate" style="max-width: 150px;" title="@payload">
+                                            @payload
                                         </div>
+                                        <button class="btn btn-sm btn-outline-success py-0 px-1"
+                                                title="Copy Payload"
+                                                @onclick="() => CopyToClipboard(payload, u.Username)">
+                                            📋
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-dark py-0 px-1"
+                                                title="Xem QR Code"
+                                                @onclick="() => ShowEmployeeQr(u)">
+                                            🖨️
+                                        </button>
+                                    </div>
+                                </td>
 
-                                        @if (employeePayloads.TryGetValue(u.Id, out var p) && !string.IsNullOrWhiteSpace(p))
-                                        {
-                                            <div class="small text-muted mt-1 text-truncate" title="@p">@p</div>
-                                        }
-                                    </td>
+                                <td>
+                                    @if (u.Role == "admin")
+                                    {
+                                        <span class="badge bg-danger">Admin</span>
+                                    }
+                                    else if (u.Role == "admin1")
+                                    {
+                                        <span class="badge bg-warning text-dark">Admin 1</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-success">User</span>
+                                    }
+                                </td>
 
-                                    <td>
-                                        @if (u.Role == "admin")
-                                        {
-                                            <span class="badge bg-danger">Admin (Toàn quyền)</span>
-                                        }
-                                        else if (u.Role == "admin1")
-                                        {
-                                            <span class="badge bg-warning text-dark">Admin 1 (Xem & Live)</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge bg-success">User</span>
-                                        }
-                                    </td>
-
-                                    <td>
-                                        <button class="btn btn-warning btn-sm" @onclick="() => OpenEditModal(u)">Sửa</button>
-                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteUser(u.Id)">Xóa</button>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
-        </div>
+                                <td>
+                                    <button class="btn btn-warning btn-sm me-1" @onclick="() => OpenEditModal(u)">Sửa</button>
+                                    <button class="btn btn-danger btn-sm" @onclick="() => DeleteUser(u)">Xóa</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
     </div>
+</div>
 
-    <!-- MODAL TẠO / SỬA USER -->
-    @if (showModal)
-    {
-        <div class="modal-backdrop fade show"></div>
-        <div class="modal fade show d-block" tabindex="-1">
-            <div class="modal-dialog">
-                <div class="modal-content">
+@if (showModal)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <EditForm Model="currentUser" OnValidSubmit="SaveUser">
+                    <DataAnnotationsValidator />
                     <div class="modal-header">
-                        <h5 class="modal-title">@(isEditing ? "Cập nhật Tài khoản" : "Tạo Tài khoản mới")</h5>
+                        <h5 class="modal-title">@(currentUser.Id == 0 ? "Tạo Tài khoản mới" : "Cập nhật Tài khoản")</h5>
                         <button type="button" class="btn-close" @onclick="CloseModal"></button>
                     </div>
                     <div class="modal-body">
                         <div class="mb-3">
-                            <label>Tên đăng nhập</label>
-                            <input class="form-control" @bind="currentUser.Username" disabled="@isEditing" />
+                            <label class="form-label">Tên đăng nhập</label>
+                            <InputText class="form-control" @bind-Value="currentUser.Username" disabled="@(currentUser.Id != 0)" />
+                            <ValidationMessage For="@(() => currentUser.Username)" />
                         </div>
                         <div class="mb-3">
-                            <label>Mật khẩu @(isEditing ? "(Để trống nếu không đổi)" : "")</label>
-                            <input type="password" class="form-control" @bind="passwordInput" />
+                            <label class="form-label">Mật khẩu @(currentUser.Id != 0 ? "(Để trống nếu không đổi)" : "")</label>
+                            <InputText type="password" class="form-control" @bind-Value="passwordInput" />
                         </div>
                         <div class="row">
                             <div class="col-6 mb-3">
-                                <label>Họ tên</label>
-                                <input class="form-control" @bind="currentUser.FullName" />
+                                <label class="form-label">Họ tên</label>
+                                <InputText class="form-control" @bind-Value="currentUser.FullName" />
                             </div>
                             <div class="col-6 mb-3">
-                                <label>Mã NV</label>
-                                <input class="form-control" @bind="currentUser.EmployeeCode" />
+                                <label class="form-label">Mã NV</label>
+                                <InputText class="form-control" @bind-Value="currentUser.EmployeeCode" />
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label>Địa chỉ</label>
-                            <input class="form-control" @bind="currentUser.Address" />
+                            <label class="form-label">Địa chỉ</label>
+                            <InputText class="form-control" @bind-Value="currentUser.Address" />
                         </div>
                         <div class="mb-3">
-                            <label>Vai trò</label>
-                            <select class="form-select" @bind="currentUser.Role">
+                            <label class="form-label">Vai trò</label>
+                            <InputSelect class="form-select" @bind-Value="currentUser.Role">
                                 <option value="user">User (Nhân viên)</option>
                                 <option value="admin">Admin (Toàn quyền)</option>
                                 <option value="admin1">Admin 1 (Chỉ xem Video/Live)</option>
-                            </select>
+                            </InputSelect>
                         </div>
                         @if (!string.IsNullOrEmpty(errorMsg))
                         {
@@ -191,346 +179,231 @@ else if (isAuthorized)
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" @onclick="CloseModal">Hủy</button>
-                        <button type="button" class="btn btn-primary" @onclick="SaveUser">Lưu lại</button>
+                        <button type="submit" class="btn btn-primary">Lưu lại</button>
                     </div>
-                </div>
+                </EditForm>
             </div>
         </div>
-    }
-
-    <!-- MODAL XEM QR NHÂN VIÊN -->
-    @if (showQrModal && !string.IsNullOrWhiteSpace(qrImageDataUrl))
-    {
-        <div class="modal-backdrop fade show"></div>
-        <div class="modal fade show d-block" tabindex="-1">
-            <div class="modal-dialog modal-sm modal-dialog-centered">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">@qrModalTitle</h5>
-                        <button type="button" class="btn-close" @onclick="CloseQrModal"></button>
-                    </div>
-                    <div class="modal-body text-center">
-                        <img src="@qrImageDataUrl"
-                             alt="QR nhân viên"
-                             style="max-width:100%; height:auto; image-rendering:pixelated;" />
-                        <div class="small text-muted mt-2">
-                            Scan mã này tại trạm để đăng nhập / rời trạm.
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button class="btn btn-secondary btn-sm" @onclick="CloseQrModal">Đóng</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    }
+    </div>
 }
-else
+
+@if (showQrModal)
 {
-    <div class="alert alert-danger text-center mt-5">
-        <h3>⛔ Truy cập bị từ chối</h3>
-        <p>Chỉ tài khoản Admin toàn quyền mới xem được trang này.</p>
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1">
+        <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">QR Nhân viên</h5>
+                    <button type="button" class="btn-close" @onclick="() => showQrModal = false"></button>
+                </div>
+                <div class="modal-body text-center">
+                    @if (selectedUserForQr != null)
+                    {
+                        <img src="@($"/api/users/{selectedUserForQr.Id}/employee-qr-image")"
+                             alt="QR Code"
+                             style="max-width:100%; height:auto; border: 1px solid #ddd; padding: 5px;" />
+                        
+                        <div class="mt-2 fw-bold">@selectedUserForQr.FullName</div>
+                        <div class="small text-muted">@selectedUserForQr.EmployeeCode</div>
+                    }
+                </div>
+            </div>
+        </div>
     </div>
 }
 
 @code {
+    // Model dùng cho form
     public class UserViewModel
     {
         public int Id { get; set; }
-        public string Username { get; set; } = "";
-        public string FullName { get; set; } = "";
-        public string EmployeeCode { get; set; } = "";
-        public string Address { get; set; } = "";
-        public string Role { get; set; } = "user";
-    }
-
-    private sealed class EmployeePayloadRes
-    {
-        public int Id { get; set; }
+        
+        [Required(ErrorMessage = "Vui lòng nhập Username")]
         public string Username { get; set; } = "";
         public string? FullName { get; set; }
         public string? EmployeeCode { get; set; }
-        public string Payload { get; set; } = "";
+        public string? Address { get; set; }
+        public string Role { get; set; } = "user";
     }
 
     private List<UserViewModel>? users;
-    private bool showModal = false;
-    private bool isEditing = false;
     private UserViewModel currentUser = new();
+    private User? selectedUserForQr; // User đang xem QR
+    
+    private bool showModal = false;
+    private bool showQrModal = false;
     private string passwordInput = "";
     private string errorMsg = "";
-    private string loadError = "";
     private string uiMessage = "";
-    private bool isLoading = true;
-    private bool isAuthorized = false;
-    private bool _loadedOnce = false;
 
-    // userId -> payload
-    private readonly Dictionary<int, string> employeePayloads = new();
-
-    // --- QR image modal ---
-    private bool showQrModal = false;
-    private string? qrImageDataUrl;
-    private string qrModalTitle = "";
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnInitializedAsync()
     {
-        if (firstRender && !_loadedOnce)
-        {
-            _loadedOnce = true;
-
-            if (AuthStateProvider is CustomAuthStateProvider customAuth)
-            {
-                await customAuth.LoadUserFromLocalStorage();
-            }
-
-            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            var user = authState.User;
-
-            if (user.Identity?.IsAuthenticated == true && user.IsInRole("admin"))
-            {
-                isAuthorized = true;
-                isLoading = false;
-                await LoadUsers();
-                StateHasChanged();
-            }
-            else
-            {
-                isAuthorized = false;
-                isLoading = false;
-                Nav.NavigateTo("/login", true);
-            }
-        }
+        // Load danh sách user trực tiếp từ DB khi trang mở
+        await LoadUsers();
     }
 
     private async Task LoadUsers()
     {
-        try
+        // 👇 Gọi trực tiếp DB Context, không qua HTTP Client
+        // Vì code này chạy trên Server, nên truy cập DB rất nhanh
+        var dbUsers = await DbContext.Users.OrderByDescending(u => u.Id).ToListAsync();
+        
+        users = dbUsers.Select(u => new UserViewModel
         {
-            loadError = "";
-            uiMessage = "";
-            await AttachToken();
-            users = await Http.GetFromJsonAsync<List<UserViewModel>>("api/users") ?? new();
-
-            employeePayloads.Clear();
-        }
-        catch (Exception ex)
-        {
-            loadError = ex.Message;
-            users = new List<UserViewModel>();
-        }
-        finally
-        {
-            StateHasChanged();
-        }
+            Id = u.Id,
+            Username = u.Username,
+            FullName = u.FullName,
+            EmployeeCode = u.EmployeeCode,
+            Address = u.Address,
+            Role = u.Role ?? "user"
+        }).ToList();
     }
 
+    // --- LOGIC TẠO / SỬA USER ---
     private void OpenCreateModal()
     {
-        isEditing = false;
         currentUser = new UserViewModel { Role = "user" };
         passwordInput = "";
         errorMsg = "";
         showModal = true;
     }
 
-    private void OpenEditModal(UserViewModel user)
+    private void OpenEditModal(UserViewModel u)
     {
-        isEditing = true;
         currentUser = new UserViewModel
         {
-            Id = user.Id,
-            Username = user.Username,
-            FullName = user.FullName,
-            EmployeeCode = user.EmployeeCode,
-            Address = user.Address,
-            Role = user.Role
+            Id = u.Id,
+            Username = u.Username,
+            FullName = u.FullName,
+            EmployeeCode = u.EmployeeCode,
+            Address = u.Address,
+            Role = u.Role
         };
-        passwordInput = "";
+        passwordInput = ""; // Reset pass
         errorMsg = "";
         showModal = true;
     }
 
-    private void CloseModal() => showModal = false;
-
     private async Task SaveUser()
     {
         errorMsg = "";
-        if (string.IsNullOrWhiteSpace(currentUser.Username))
+        try 
         {
-            errorMsg = "Thiếu username";
-            return;
-        }
-
-        if (!isEditing && string.IsNullOrWhiteSpace(passwordInput))
-        {
-            errorMsg = "Thiếu password";
-            return;
-        }
-
-        try
-        {
-            await AttachToken();
-
-            if (isEditing)
+            if (currentUser.Id == 0) // Tạo mới
             {
-                var updateDto = new
+                if (string.IsNullOrWhiteSpace(passwordInput))
                 {
-                    FullName = currentUser.FullName,
-                    EmployeeCode = currentUser.EmployeeCode,
-                    Address = currentUser.Address,
-                    Role = currentUser.Role,
-                    Password = string.IsNullOrWhiteSpace(passwordInput) ? null : passwordInput
-                };
+                    errorMsg = "Vui lòng nhập mật khẩu cho tài khoản mới.";
+                    return;
+                }
 
-                var res = await Http.PutAsJsonAsync($"api/users/{currentUser.Id}", updateDto);
-                if (!res.IsSuccessStatusCode)
-                    throw new Exception(await res.Content.ReadAsStringAsync());
-            }
-            else
-            {
-                var createDto = new
+                // Check trùng username
+                if (await DbContext.Users.AnyAsync(u => u.Username == currentUser.Username))
+                {
+                    errorMsg = "Tên đăng nhập đã tồn tại!";
+                    return;
+                }
+
+                var newUser = new User
                 {
                     Username = currentUser.Username,
-                    Password = passwordInput,
+                    PasswordHash = passwordInput, // ⚠️ Lưu ý: Nên mã hóa MD5/BCrypt ở đây
                     FullName = currentUser.FullName,
                     EmployeeCode = currentUser.EmployeeCode,
                     Address = currentUser.Address,
                     Role = currentUser.Role
                 };
 
-                var res = await Http.PostAsJsonAsync("api/users", createDto);
-                if (!res.IsSuccessStatusCode)
-                    throw new Exception(await res.Content.ReadAsStringAsync());
+                DbContext.Users.Add(newUser);
+                await DbContext.SaveChangesAsync();
+                uiMessage = $"✅ Đã tạo user {newUser.Username}";
+            }
+            else // Cập nhật
+            {
+                var user = await DbContext.Users.FindAsync(currentUser.Id);
+                if (user != null)
+                {
+                    user.FullName = currentUser.FullName;
+                    user.EmployeeCode = currentUser.EmployeeCode;
+                    user.Address = currentUser.Address;
+                    user.Role = currentUser.Role;
+                    
+                    // Chỉ đổi pass nếu người dùng nhập
+                    if (!string.IsNullOrWhiteSpace(passwordInput))
+                    {
+                        user.PasswordHash = passwordInput;
+                    }
+
+                    await DbContext.SaveChangesAsync();
+                    uiMessage = $"✅ Đã cập nhật user {user.Username}";
+                }
             }
 
             showModal = false;
-            await LoadUsers();
+            await LoadUsers(); // Reload lại danh sách
         }
         catch (Exception ex)
         {
-            errorMsg = "Lỗi: " + ex.Message;
+            errorMsg = "Lỗi hệ thống: " + ex.Message;
         }
     }
 
-    private async Task DeleteUser(int id)
+    private async Task DeleteUser(UserViewModel u)
     {
-        if (!await JS.InvokeAsync<bool>("confirm", "Xóa user này?")) return;
+        if (!await JS.InvokeAsync<bool>("confirm", $"Bạn có chắc muốn xóa {u.Username}?")) return;
 
-        try
+        var user = await DbContext.Users.FindAsync(u.Id);
+        if (user != null)
         {
-            await AttachToken();
-            await Http.DeleteAsync($"api/users/{id}");
+            DbContext.Users.Remove(user);
+            await DbContext.SaveChangesAsync();
+            uiMessage = $"🗑️ Đã xóa user {u.Username}";
             await LoadUsers();
         }
-        catch { }
     }
 
-    private async Task FetchEmployeePayload(UserViewModel u)
+    private void CloseModal() => showModal = false;
+
+    // --- LOGIC QR CODE ---
+    
+    // Hàm tạo chuỗi payload QR (Logic phải khớp với QrScanWorker)
+    private string GenerateQrPayload(UserViewModel u)
     {
-        uiMessage = "";
-        try
-        {
-            await AttachToken();
-
-            var res = await Http.GetAsync($"api/users/{u.Id}/employee-qr-payload");
-            if (!res.IsSuccessStatusCode)
-            {
-                uiMessage = $"❌ Không lấy được payload cho {u.Username}";
-                return;
-            }
-
-            var data = await res.Content.ReadFromJsonAsync<EmployeePayloadRes>();
-            var payload = data?.Payload ?? "";
-
-            employeePayloads[u.Id] = payload;
-
-            if (string.IsNullOrWhiteSpace(payload))
-                uiMessage = $"⚠️ User {u.Username} chưa có Mã NV.";
-        }
-        catch (Exception ex)
-        {
-            uiMessage = "Lỗi lấy payload: " + ex.Message;
-        }
-
-        StateHasChanged();
+        // Ví dụ format: "EMPLOYEE:{ID}:{CODE}"
+        // Nếu bạn dùng format khác, hãy sửa ở đây
+        if (string.IsNullOrEmpty(u.EmployeeCode)) return "";
+        return $"EMPLOYEE:{u.Id}:{u.EmployeeCode}";
     }
 
-    private async Task CopyEmployeePayload(UserViewModel u)
+    private async Task CopyToClipboard(string text, string username)
     {
-        uiMessage = "";
-
-        if (!employeePayloads.TryGetValue(u.Id, out var payload) || string.IsNullOrWhiteSpace(payload))
+        if (string.IsNullOrEmpty(text))
         {
-            await FetchEmployeePayload(u);
-            employeePayloads.TryGetValue(u.Id, out payload);
-        }
-
-        if (string.IsNullOrWhiteSpace(payload))
-        {
-            uiMessage = $"⚠️ Không có payload để copy cho {u.Username}";
-            StateHasChanged();
+            uiMessage = $"⚠️ User {username} chưa có Mã NV để tạo QR.";
             return;
         }
-
+        
         try
         {
-            var ok = await JS.InvokeAsync<bool>("adminUtils.copyText", payload);
-            uiMessage = ok ? $"✅ Đã copy payload của {u.Username}" : "❌ Copy thất bại";
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            uiMessage = $"✅ Đã copy payload của {username}";
         }
         catch
         {
-            uiMessage = "❌ Copy thất bại";
-        }
-
-        StateHasChanged();
-    }
-
-    private async Task ShowEmployeeQr(UserViewModel u)
-    {
-        uiMessage = "";
-        qrImageDataUrl = null;
-        showQrModal = false;
-
-        try
-        {
-            await AttachToken();
-            var bytes = await Http.GetByteArrayAsync($"api/users/{u.Id}/employee-qr-image");
-            var base64 = Convert.ToBase64String(bytes);
-            qrImageDataUrl = $"data:image/png;base64,{base64}";
-            qrModalTitle = $"QR Nhân viên - {u.Username}";
-            showQrModal = true;
-        }
-        catch (Exception ex)
-        {
-            uiMessage = "Lỗi tải ảnh QR: " + ex.Message;
-        }
-
-        StateHasChanged();
-    }
-
-    private void CloseQrModal()
-    {
-        showQrModal = false;
-        qrImageDataUrl = null;
-    }
-
-    private async Task AttachToken()
-    {
-        var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
-        if (!string.IsNullOrEmpty(token))
-        {
-            Http.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            uiMessage = "❌ Không thể copy (Lỗi trình duyệt)";
         }
     }
 
-    private async Task Logout()
+    private void ShowEmployeeQr(UserViewModel vm)
     {
-        await JS.InvokeVoidAsync("localStorage.clear");
-        if (AuthStateProvider is CustomAuthStateProvider customAuth)
-            await customAuth.MarkUserAsLoggedOut();
-
-        Nav.NavigateTo("/login", true);
+        // Chuyển đổi ViewModel sang Model User tạm để hiển thị
+        selectedUserForQr = new User 
+        { 
+            Id = vm.Id, 
+            FullName = vm.FullName, 
+            EmployeeCode = vm.EmployeeCode 
+        };
+        showQrModal = true;
     }
 }

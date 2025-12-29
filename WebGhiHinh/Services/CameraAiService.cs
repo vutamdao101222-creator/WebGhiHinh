@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 using WebGhiHinh.Hubs;
 using ZXing.Windows.Compatibility; // <-- QUAN TRỌNG: Dùng cái này để sửa lỗi BarcodeReader<T>
 
-namespace WebGhiHinh.Services
+namespace QRCoder.Services
 {
     public class CameraAiService : BackgroundService
     {

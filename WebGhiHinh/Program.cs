@@ -1,14 +1,9 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Components.Authorization;
-using Microsoft.AspNetCore.Components.Server;
-using Microsoft.AspNetCore.Components.Server.Circuits;
-using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.JwtBearer; // Cần thiết cho JWT
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
-using System.IdentityModel.Tokens.Jwt;
-using System.Text;
+using Microsoft.IdentityModel.Tokens; // Cần thiết cho SecurityKey
+using System.Text; // Cần thiết cho Encoding
 using WebGhiHinh.Components;
 using WebGhiHinh.Data;
 using WebGhiHinh.Hubs;
@@ -17,170 +12,134 @@ using WebGhiHinh.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 // ===============================
-// Controllers + Swagger
+// 1. LOGGING
 // ===============================
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-
-builder.Services.AddSwaggerGen(options =>
-{
-    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Name = "Authorization",
-        Type = SecuritySchemeType.Http,
-        Scheme = "Bearer",
-        BearerFormat = "JWT",
-        In = ParameterLocation.Header,
-        Description = "Nhập chuỗi Token của bạn vào đây."
-    });
-
-    options.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
-});
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
 
 // ===============================
-// Database
+// 2. DATABASE CONFIGURATION
 // ===============================
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new Exception("Missing connection string");
+
+// 👇 QUAN TRỌNG: Đăng ký Factory cho Blazor Server (Fix lỗi treo loading)
+builder.Services.AddDbContextFactory<AppDbContext>(options =>
+    options.UseSqlServer(connectionString), ServiceLifetime.Scoped);
+
+// Đăng ký Context thường (Hỗ trợ Controller cũ nếu cần)
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(connectionString));
 
 // ===============================
-// Blazor Razor Components
+// 3. AUTHENTICATION (Đã sửa lỗi cú pháp)
 // ===============================
-builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
-
-// Bật lỗi chi tiết circuit để debug
-builder.Services.Configure<CircuitOptions>(o =>
+builder.Services.AddAuthentication(options =>
 {
-    o.DetailedErrors = true;
-});
-
-// ===============================
-// Antiforgery (cho Razor Components)
-// ===============================
-builder.Services.AddAntiforgery();
-
-// ===============================
-// Services
-// ===============================
-builder.Services.AddSingleton<FfmpegService>();
-
-// HttpClient cho UI gọi API nội bộ
-builder.Services.AddScoped(sp => new HttpClient
-{
-    // 👇 nếu sau này IP/port đổi thì sửa 1 chỗ này
-    BaseAddress = new Uri("http://192.168.1.48/")
-});
-
-builder.Services.AddScoped<ProtectedSessionStorage>();
-
-// ✅ SignalR cho real-time ScanResult
-builder.Services.AddSignalR();
-
-// ✅ Worker scan server-side (OpenCV + ZXing)
-builder.Services.AddHostedService<QrScanWorker>();
-
-// ===============================
-// Auth state cho Blazor
-// ===============================
-builder.Services.AddScoped<AuthenticationStateProvider, CustomAuthStateProvider>();
-builder.Services.AddCascadingAuthenticationState();
-
-// ===============================
-// JWT cho API
-// ===============================
-JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
-
-var key = builder.Configuration["Jwt:Key"] ?? "";
-var issuer = builder.Configuration["Jwt:Issuer"];
-var audience = builder.Configuration["Jwt:Audience"];
-
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    // Mặc định dùng Cookie cho Web App (Login người dùng)
+    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+})
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/login";
+        options.LogoutPath = "/account/logout";
+        options.ExpireTimeSpan = TimeSpan.FromDays(7);
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+    }) // 👈 KHÔNG CÓ DẤU CHẤM PHẨY Ở ĐÂY, ĐỂ NỐI TIẾP LỆNH
     .AddJwtBearer(options =>
     {
-        options.MapInboundClaims = false;
+        options.RequireHttpsMetadata = false; // Chạy nội bộ tắt HTTPS cho đỡ lỗi
+        options.SaveToken = true;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = issuer,
-            ValidAudience = audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
-            RoleClaimType = "role",
-            NameClaimType = "name"
+
+            // ⚠️ CẤU HÌNH KHỚP VỚI WORKER SERVICE
+            ValidIssuer = "http://localhost:5000",
+            ValidAudience = "http://localhost:5000",
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes("Chuoi_Bi_Mat_Nay_Phai_Dai_Hon_32_Ky_Tu_De_Dam_Bao_An_Toan_Cho_Token_!!!"))
         };
-    });
+    }); // 👈 Dấu chấm phẩy kết thúc chuỗi lệnh nằm ở đây
 
 builder.Services.AddAuthorization();
+builder.Services.AddCascadingAuthenticationState(); // Cần thiết cho Blazor Auth
+builder.Services.AddSingleton<QrDispatchService>();
+string hubUrl = builder.Configuration["SignalRUrl"] ?? "http://localhost:5000/scanHub";
+builder.Services.AddSingleton(sp => new SignalRClient(hubUrl));
+// ===============================
+// 4. MVC + SIGNALR + SWAGGER
+// ===============================
+builder.Services.AddControllers()
+    .AddJsonOptions(opt =>
+    {
+        opt.JsonSerializerOptions.ReferenceHandler =
+            System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+    });
+
+builder.Services.AddSignalR();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
 
 // ===============================
-// CORS
+// 5. REGISTER SERVICES
 // ===============================
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowAll", b =>
-        b.AllowAnyOrigin()
-         .AllowAnyHeader()
-         .AllowAnyMethod());
-});
+builder.Services.AddSingleton<FfmpegService>();
+builder.Services.AddSingleton<SystemSettingsService>();
+builder.Services.AddSingleton<QrDispatchService>(); // 👈 Thêm dòng này
+// 👇 QUAN TRỌNG: StationService phải là SCOPED
+builder.Services.AddScoped<StationService>();
 
 var app = builder.Build();
 
 // ===============================
-// Swagger
+// 6. MIDDLEWARE PIPELINE
 // ===============================
-app.UseSwagger();
-app.UseSwaggerUI();
+app.UseDeveloperExceptionPage(); // Hiện lỗi chi tiết khi dev
 
-// ===============================
-// Static files
-// ===============================
 app.UseStaticFiles();
 
-// Map thư mục video: /videos -> C:\GhiHinhVideos
-var videoPath = @"C:\GhiHinhVideos";
-if (!Directory.Exists(videoPath)) Directory.CreateDirectory(videoPath);
+// Tạo và Map thư mục Video
+var videoPath = builder.Configuration["Recording:Root"] ?? @"C:\GhiHinhVideos";
+try { Directory.CreateDirectory(videoPath); } catch { }
 
-app.UseStaticFiles(new StaticFileOptions
+if (Directory.Exists(videoPath))
 {
-    FileProvider = new PhysicalFileProvider(videoPath),
-    RequestPath = "/videos"
-});
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(videoPath),
+        RequestPath = "/videos",
+        ServeUnknownFileTypes = true
+    });
+}
 
-// ===============================
-// Pipeline
-// ===============================
-app.UseHttpsRedirection();
+// Bật WebSocket cho SignalR
+app.UseWebSockets();
 
-app.UseCors("AllowAll");
+app.UseRouting();
 
+// Thứ tự quan trọng: Auth -> Authorization -> Antiforgery
 app.UseAuthentication();
 app.UseAuthorization();
 
+// 👇 QUAN TRỌNG: Fix lỗi Login bị crash
 app.UseAntiforgery();
 
-// API controllers
-app.MapControllers();
+app.UseSwagger();
+app.UseSwaggerUI();
 
-// ✅ Map hub SignalR để scan-overlay.js kết nối
+// Map Endpoints
+app.MapControllers();
 app.MapHub<ScanHub>("/scanHub");
 
-// Root Razor Components (App.razor)
 app.MapRazorComponents<App>()
    .AddInteractiveServerRenderMode();
 

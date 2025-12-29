@@ -34,7 +34,7 @@ namespace WebGhiHinh.Controllers
             var user = new User
             {
                 Username = request.Username,
-                PasswordHash = request.Password, // Lưu ý: Nên mã hóa mật khẩu trong thực tế
+                PasswordHash = request.Password,
                 Role = "user",
                 FullName = request.FullName,
                 EmployeeCode = request.EmployeeCode,
@@ -49,6 +49,7 @@ namespace WebGhiHinh.Controllers
 
         // POST: api/auth/login
         [HttpPost("login")]
+        // ✅ Đã XÓA [IgnoreAntiforgery] vì Program.cs đã DisableAntiforgery()
         public async Task<IActionResult> Login(UserLoginDto request)
         {
             try
@@ -64,8 +65,8 @@ namespace WebGhiHinh.Controllers
 
                 return Ok(new
                 {
-                    access_token = token, // Frontend của bạn đang dùng tên biến này? Hãy kiểm tra nếu code Blazor dùng 'token' hay 'access_token'
-                    token = token,        // Trả về cả 2 tên cho chắc ăn (để khớp với ScanningPage.razor)
+                    access_token = token,
+                    token = token,
                     username = user.Username,
                     role = user.Role
                 });
@@ -79,24 +80,24 @@ namespace WebGhiHinh.Controllers
         private string CreateToken(User user)
         {
             var keyStr = _config["Jwt:Key"];
+            if (string.IsNullOrEmpty(keyStr)) keyStr = "Key_Du_Phong_Cuc_Manh_Chong_Sap_IIS_123456789_ABC";
+
             var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(keyStr));
             var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
-            // 👇 QUAN TRỌNG: Cấu hình các Claim
             var claims = new List<Claim>
             {
-                // Key "Id" bắt buộc phải có để StationController nhận diện được người dùng
                 new Claim("Id", user.Id.ToString()),
-
-                new Claim("sub", user.Id.ToString()),    // ID người dùng (Subject - Chuẩn JWT)
-                new Claim("name", user.Username),        // Tên đăng nhập
-                new Claim("role", user.Role),            // Quyền (admin/user)
+                new Claim("sub", user.Id.ToString()),
+                new Claim("name", user.Username),
+                new Claim("role", user.Role),
                 new Claim("FullName", user.FullName ?? "")
             };
 
             var token = new JwtSecurityToken(
-                issuer: _config["Jwt:Issuer"],
-                audience: _config["Jwt:Audience"],
+                // Đọc đúng từ appsettings hoặc fallback về localhost
+                issuer: _config["Jwt:Issuer"] ?? "http://localhost:5000",
+                audience: _config["Jwt:Audience"] ?? "http://localhost:5000",
                 claims: claims,
                 expires: DateTime.Now.AddDays(1),
                 signingCredentials: credentials);

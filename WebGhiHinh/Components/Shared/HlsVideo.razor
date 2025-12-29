@@ -1,0 +1,106 @@
+﻿@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="video-container">
+    @* 🔥 QUAN TRỌNG: Thêm 'muted autoplay playsinline' để trình duyệt cho phép tự chạy lại *@
+    <video id="@elementId" class="hls-video" muted playsinline autoplay></video>
+
+    @* Hiệu ứng Loading *@
+    @if (isLoading)
+    {
+        <div class="video-loader">
+            <div class="spinner-border text-light spinner-sm" role="status"></div>
+        </div>
+    }
+
+    @* Hiệu ứng Lỗi (Nếu có) *@
+    @if (hasError)
+    {
+        <div class="video-error text-danger">
+            <i class="bi bi-exclamation-triangle-fill fs-3"></i>
+            <small>Stream Error</small>
+        </div>
+    }
+</div>
+
+<style>
+    .video-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+    }
+
+    .hls-video {
+        width: 100%;
+        height: 100%;
+        object-fit: fill;
+    }
+
+    .video-loader {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 2;
+    }
+
+    .video-error {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #220000;
+        z-index: 3;
+    }
+</style>
+
+@code {
+    // Nhận link video từ trang cha
+    [Parameter] public string src { get; set; } = "";
+
+    // Tạo ID ngẫu nhiên để không bị trùng lặp trong DOM
+    private string elementId = "hls-" + Guid.NewGuid().ToString("N");
+    private bool isLoading = true;
+    private bool hasError = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Chỉ chạy lần đầu tiên khi component được tạo ra
+        if (firstRender && !string.IsNullOrEmpty(src))
+        {
+            try
+            {
+                // 👇 Tối ưu: Chỉ đợi 100ms (thay vì 500ms) để cảm giác reload nhanh hơn
+                await Task.Delay(100);
+
+                // Gọi hàm JS để khởi tạo HLS.js
+                await JS.InvokeVoidAsync("hlsPlayer.start", elementId, src);
+
+                isLoading = false;
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"JS Video Error: {ex.Message}");
+                hasError = true;
+                isLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    // Hàm này chạy khi Component bị hủy (do @key thay đổi bên trang cha)
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            // Gọi JS để hủy instance HLS, giải phóng RAM
+            await JS.InvokeVoidAsync("hlsPlayer.stop", elementId);
+        }
+        catch { } // Bỏ qua lỗi nếu quá trình hủy gặp trục trặc
+    }
+}

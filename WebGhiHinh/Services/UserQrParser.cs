@@ -27,5 +27,27 @@
 
             return false;
         }
+        public static bool TryParseLoginCode(string? raw, out string username)
+        {
+            username = string.Empty;
+            if (string.IsNullOrWhiteSpace(raw)) return false;
+
+            raw = raw.Trim();
+
+            // Chấp nhận mã: "CTV:nguyena" hoặc "LOGIN:nguyena"
+            if (raw.StartsWith("CTV:", StringComparison.OrdinalIgnoreCase))
+            {
+                username = raw.Substring(4).Trim();
+                return !string.IsNullOrWhiteSpace(username);
+            }
+
+            if (raw.StartsWith("LOGIN:", StringComparison.OrdinalIgnoreCase))
+            {
+                username = raw.Substring(6).Trim();
+                return !string.IsNullOrWhiteSpace(username);
+            }
+
+            return false;
+        }
     }
 }

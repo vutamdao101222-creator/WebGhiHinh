@@ -1,16 +1,7 @@
-﻿// ==========================================
-// FILE: Services/FfmpegService.cs
-// Lưu theo StationName vào C:\GhiHinhVideos
-// Format file: username_qr_yyyyMMdd_HHmmss.mp4
-// Trả về path dạng /videos/{station}/{file}.mp4
-// ==========================================
-
-using System;
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.IO;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
+using WebGhiHinh.DTOs;
+using WebGhiHinh.Models;
 
 namespace WebGhiHinh.Services
 {
@@ -21,208 +12,155 @@ namespace WebGhiHinh.Services
             public Process Process { get; init; } = default!;
             public string FileFullPath { get; init; } = "";
             public DateTime StartedAt { get; init; } = DateTime.Now;
-            public string QrCode { get; init; } = "";
-            public string Username { get; init; } = "";
-            public string RtspUrl { get; init; } = "";
         }
 
-        private readonly ConcurrentDictionary<string, StationProcess> _stationProcesses = new();
+        private readonly ConcurrentDictionary<string, StationProcess> _processes = new();
         private readonly ILogger<FfmpegService> _logger;
-
-        // Default root nếu không có cấu hình
-        private const string DefaultRecordingRoot = @"C:\GhiHinhVideos";
-
         private readonly string _recordingRoot;
         private readonly string _ffmpegExe;
 
         public FfmpegService(ILogger<FfmpegService> logger, IConfiguration? config = null)
         {
             _logger = logger;
-
-            // Cho phép override trong appsettings.json nếu bạn muốn:
-            // "Recording": { "Root": "C:\\GhiHinhVideos", "FfmpegPath": "ffmpeg" }
-            _recordingRoot = config?["Recording:Root"] ?? DefaultRecordingRoot;
+            // Chỉ cần cấu hình thư mục Ghi hình, không cần HLS nữa
+            _recordingRoot = config?["Recording:Root"] ?? @"C:\GhiHinhVideos";
             _ffmpegExe = config?["Recording:FfmpegPath"] ?? "ffmpeg";
 
-            Directory.CreateDirectory(_recordingRoot);
+            try
+            {
+                if (!Directory.Exists(_recordingRoot)) Directory.CreateDirectory(_recordingRoot);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Không thể tạo thư mục lưu trữ video");
+            }
         }
 
         // ==========================================
-        // API CHÍNH
+        // 1. CHỨC NĂNG GHI HÌNH (GIỮ NGUYÊN)
         // ==========================================
-        public string StartRecording(string rtspUrl, string qrCode, string stationName, string username)
+        // Logic này MediaMTX không làm thay được (ghép Cam QR vào Cam Chính), nên phải giữ lại.
+
+        public string StartRecording(string stationName, string username, string qrCode, string rtspOverview, string? rtspQr = null)
         {
-            if (string.IsNullOrWhiteSpace(rtspUrl))
-                throw new ArgumentException("rtspUrl is required");
-            if (string.IsNullOrWhiteSpace(qrCode))
-                throw new ArgumentException("qrCode is required");
-            if (string.IsNullOrWhiteSpace(stationName))
-                throw new ArgumentException("stationName is required");
+            if (string.IsNullOrWhiteSpace(rtspOverview)) throw new ArgumentException("Cần ít nhất RTSP Overview");
 
-            username = string.IsNullOrWhiteSpace(username) ? "UnknownUser" : username.Trim();
-            qrCode = qrCode.Trim();
-            stationName = stationName.Trim();
-
-            // 1 trạm chỉ có 1 process -> stop cái cũ trước
             StopRecording(stationName);
 
-            var safeQr = MakeSafe(qrCode);
             var safeUser = MakeSafe(username);
+            var safeQr = MakeSafe(qrCode);
             var ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
-            var folder = Path.Combine(_recordingRoot, stationName);
-            Directory.CreateDirectory(folder);
+            var folder = Path.Combine(_recordingRoot, MakeSafe(stationName));
+            if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
 
             var fileName = $"{safeUser}_{safeQr}_{ts}.mp4";
             var fullPath = Path.Combine(folder, fileName);
 
-            // ✅ Args tối ưu cho RTSP ổn định + ghi MP4 nhanh
-            var args =
-                "-hide_banner -loglevel error " +
-                "-fflags +nobuffer -flags low_delay " +
-                "-analyzeduration 2000000 -probesize 2000000 " +
-                $"-rtsp_transport tcp -i \"{rtspUrl}\" " +
-                "-an -c:v copy -movflags +faststart " +
-                $"\"{fullPath}\"";
+            string args;
 
+            // Logic ghép 2 Cam (PiP) hoặc quay 1 Cam
+            if (!string.IsNullOrWhiteSpace(rtspQr))
+            {
+                // GỘP 2 CAM: [1:v] là cam QR, scale nhỏ lại rồi overlay lên cam chính [0:v]
+                args = $"-hide_banner -loglevel error -rtsp_transport tcp -i \"{rtspOverview}\" -rtsp_transport tcp -i \"{rtspQr}\" " +
+                       $"-filter_complex \"[1:v]scale=iw/4:-1[pip];[0:v][pip]overlay=main_w-overlay_w-10:main_h-overlay_h-10\" " +
+                       $"-c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p " +
+                       $"-an \"{fullPath}\"";
+            }
+            else
+            {
+                // 1 CAM: Copy stream cho nhẹ
+                args = $"-hide_banner -loglevel error -rtsp_transport tcp -i \"{rtspOverview}\" " +
+                       $"-c:v copy -an \"{fullPath}\"";
+            }
+
+            var p = StartFfmpegProcess(args, $"REC-{stationName}");
+
+            _processes[stationName] = new StationProcess
+            {
+                Process = p,
+                FileFullPath = fullPath
+            };
+
+            return Path.Combine("videos", MakeSafe(stationName), fileName).Replace("\\", "/");
+        }
+
+        public void StopRecording(string stationName)
+        {
+            if (_processes.TryRemove(stationName, out var proc))
+            {
+                KillProcess(proc.Process);
+            }
+        }
+
+        // ==========================================
+        // 2. CHỨC NĂNG STREAM (ĐÃ XÓA BỎ)
+        // ==========================================
+        // MediaMTX đã lo việc này rồi. Code C# chỉ cần StartStream rỗng để không lỗi biên dịch
+        // nếu lỡ có chỗ nào gọi đến nó.
+
+        public Task StartStream(Camera? camera) => Task.CompletedTask; // Không làm gì cả
+        public Task StartStream(CameraMiniDto? camDto) => Task.CompletedTask; // Không làm gì cả
+        public Task StopStream(int cameraId) => Task.CompletedTask; // Không làm gì cả
+
+        // ==========================================
+        // HELPER FUNCTIONS
+        // ==========================================
+
+        private Process StartFfmpegProcess(string args, string logTag)
+        {
             var psi = new ProcessStartInfo
             {
                 FileName = _ffmpegExe,
                 Arguments = args,
                 UseShellExecute = false,
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-                RedirectStandardInput = true,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                RedirectStandardError = true
             };
 
-            var p = new Process
-            {
-                StartInfo = psi,
-                EnableRaisingEvents = true
+            var p = new Process { StartInfo = psi, EnableRaisingEvents = true };
+
+            p.ErrorDataReceived += (s, e) => {
+                // Chỉ log lỗi nếu cần thiết
+                if (!string.IsNullOrWhiteSpace(e.Data) && (e.Data.Contains("Error") || e.Data.Contains("Fail")))
+                    _logger.LogWarning("[FFmpeg:{Tag}] {Msg}", logTag, e.Data);
             };
 
-            p.ErrorDataReceived += (_, e) =>
-            {
-                if (!string.IsNullOrWhiteSpace(e.Data))
-                    _logger.LogWarning("[FFmpeg:{Station}] {Msg}", stationName, e.Data);
-            };
+            p.Start();
+            p.BeginErrorReadLine();
+            return p;
+        }
 
-            p.Exited += (_, __) =>
-            {
-                // Khi process tự chết (mạng rớt)
-                _logger.LogWarning("[FFmpeg:{Station}] Process exited unexpectedly.", stationName);
-            };
-
-            if (!p.Start())
-                throw new InvalidOperationException("Không thể khởi động FFmpeg");
-
+        private void KillProcess(Process p)
+        {
             try
             {
-                p.BeginErrorReadLine();
-                p.BeginOutputReadLine();
+                if (!p.HasExited)
+                {
+                    p.Kill();
+                    p.WaitForExit(1000);
+                }
             }
             catch { }
-
-            _stationProcesses[stationName] = new StationProcess
-            {
-                Process = p,
-                FileFullPath = fullPath,
-                StartedAt = DateTime.Now,
-                QrCode = qrCode,
-                Username = username,
-                RtspUrl = rtspUrl
-            };
-
-            // ✅ relative path khớp static files /videos
-            var relative = Path.Combine("videos", stationName, fileName).Replace("\\", "/");
-            return "/" + relative;
+            finally { p.Dispose(); }
         }
 
-        public void StopRecording(string stationName)
+        public Dictionary<string, string> GetRecordingStatus()
         {
-            if (string.IsNullOrWhiteSpace(stationName)) return;
-
-            if (_stationProcesses.TryRemove(stationName.Trim(), out var handle))
+            var result = new Dictionary<string, string>();
+            foreach (var kvp in _processes)
             {
-                var p = handle.Process;
-
-                try
-                {
-                    if (p.HasExited) return;
-
-                    // ✅ graceful để MP4 finalize
-                    try
-                    {
-                        if (p.StartInfo.RedirectStandardInput)
-                        {
-                            p.StandardInput.WriteLine("q");
-                            p.StandardInput.Flush();
-                        }
-                    }
-                    catch { }
-
-                    // Chờ thoát mềm
-                    if (!p.WaitForExit(1800))
-                    {
-                        try
-                        {
-                            p.Kill(true);
-                            p.WaitForExit(2000);
-                        }
-                        catch { }
-                    }
-                }
-                catch { }
-                finally
-                {
-                    try { p.Dispose(); } catch { }
-                }
+                result[kvp.Key] = Path.GetFileName(kvp.Value.FileFullPath);
             }
+            return result;
         }
 
-        // ==========================================
-        // HELPERS TIỆN DỤNG
-        // ==========================================
-        public bool IsRecording(string stationName)
-        {
-            if (string.IsNullOrWhiteSpace(stationName)) return false;
-            return _stationProcesses.ContainsKey(stationName.Trim());
-        }
-
-        public bool TryGetActiveFile(string stationName, out string fileFullPath)
-        {
-            fileFullPath = "";
-            if (string.IsNullOrWhiteSpace(stationName)) return false;
-
-            if (_stationProcesses.TryGetValue(stationName.Trim(), out var handle))
-            {
-                fileFullPath = handle.FileFullPath;
-                return !string.IsNullOrWhiteSpace(fileFullPath);
-            }
-            return false;
-        }
-
-        public string? GetActiveFilePath(string stationName)
-        {
-            return TryGetActiveFile(stationName, out var p) ? p : null;
-        }
-
-        // ==========================================
-        // SANITIZE
-        // ==========================================
         private static string MakeSafe(string input)
         {
-            if (string.IsNullOrEmpty(input)) return "NA";
-
-            foreach (var c in Path.GetInvalidFileNameChars())
-                input = input.Replace(c, '_');
-
-            input = input.Replace("/", "_")
-                         .Replace("\\", "_")
-                         .Replace("..", "_");
-
-            return input.Trim();
+            if (string.IsNullOrEmpty(input)) return "Unknown";
+            foreach (var c in Path.GetInvalidFileNameChars()) input = input.Replace(c, '_');
+            return input.Trim().Replace(" ", "_");
         }
     }
 }
