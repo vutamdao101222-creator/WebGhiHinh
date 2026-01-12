@@ -1,0 +1,45 @@
+﻿@inherits LayoutComponentBase
+
+<div class="main-layout">
+    <header class="header-bar">
+        <h1 class="app-title">🎥 HOPLONG TECH</h1>
+    </header>
+
+    <main class="main-content">
+        @Body
+    </main>
+
+    <footer class="footer-bar">
+        <p>© 2025 HOPLONG TECH - All rights reserved.</p>
+    </footer>
+</div>
+
+<style>
+    .main-layout {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+        background: #f9fafb;
+    }
+
+    .header-bar {
+        background: linear-gradient(90deg, #2563eb, #1e40af);
+        color: #fff;
+        padding: 1rem 1.5rem;
+        font-weight: 600;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+
+    .main-content {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    .footer-bar {
+        background: #111827;
+        color: #9ca3af;
+        text-align: center;
+        padding: 0.75rem;
+        font-size: 0.85rem;
+    }
+</style>

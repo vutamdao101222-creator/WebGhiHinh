@@ -1,0 +1,286 @@
+﻿@page "/admin/stations-cameras"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.SignalR.Client
+@using WebGhiHinh.Models
+@using WebGhiHinh.Services
+@inject StationService StationService
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@attribute [Authorize(Roles = "admin,admin1")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Quản lý Trạm & Camera</PageTitle>
+
+<div class="page-container fade-in">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h2 class="page-title mb-1">Quản lý Trạm & Camera</h2>
+            <div class="text-muted small">Cấu hình luồng Camera, theo dõi mã QR đang quét và quản lý trạm hoạt động.</div>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="Reload">🔄 Tải lại</button>
+    </div>
+
+    @if (loading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2">Đang tải dữ liệu...</p>
+        </div>
+    }
+    else
+    {
+        <div class="card shadow-sm border p-3 mb-4">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <strong>➕ Tạo trạm mới</strong>
+            </div>
+            <div class="input-group">
+                <input class="form-control" placeholder="Nhập tên trạm (VD: Máy 3)"
+                       @bind="newStationName" @bind:event="oninput" />
+                <button class="btn btn-success" disabled="@string.IsNullOrWhiteSpace(newStationName)"
+                        @onclick="CreateStation">
+                    Tạo trạm
+                </button>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(createMessage))
+            {
+                <small class="@(createMessage.Contains("✅") ? "text-success" : "text-danger") mt-1 d-block">
+                    @createMessage
+                </small>
+            }
+        </div>
+
+        <div class="card shadow-sm border">
+            <div class="card-header bg-light fw-bold">🎥 Danh sách trạm</div>
+
+            @if (stations.Count == 0)
+            {
+                <div class="p-5 text-center text-muted">Chưa có trạm nào.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Tên Trạm</th>
+                                <th>Trạng thái</th>
+                                <th style="width: 200px;">Overview Camera</th>
+                                <th style="width: 200px;">QR Camera</th>
+                                <th>Mã đang quét</th>
+                                <th class="text-end">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in stations)
+                            {
+                                <tr>
+                                    <td class="fw-bold text-primary">@s.Name</td>
+                                    <td>
+                                        @if (s.CurrentUserId != null)
+                                        {
+                                            <span class="badge bg-danger">Bận (@(s.CurrentUser?.Username ?? "Unknown"))</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-success">Trống</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <select class="form-select form-select-sm" @bind="s.OverviewCameraId">
+                                            <option value="">-- Chưa gán --</option>
+                                            @foreach (var c in cameras)
+                                            {
+                                                <option value="@c.Id">@c.Name</option>
+                                            }
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <select class="form-select form-select-sm" @bind="s.QrCameraId">
+                                            <option value="">-- Chưa gán --</option>
+                                            @foreach (var c in cameras)
+                                            {
+                                                <option value="@c.Id">@c.Name</option>
+                                            }
+                                        </select>
+                                    </td>
+                                    <td class="text-truncate" style="max-width:200px;">
+                                        @if (!string.IsNullOrEmpty(s.CurrentCode))
+                                        {
+                                            <span title="@s.CurrentCode">@s.CurrentCode</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">—</span>
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-primary" title="Lưu cấu hình" @onclick="() => SaveStationCameras(s)">
+                                            💾
+                                        </button>
+
+                                        @if (s.CurrentUserId != null)
+                                        {
+                                            <button class="btn btn-sm btn-warning ms-1" title="Mở khóa trạm" @onclick="() => ForceRelease(s)">
+                                                🔓
+                                            </button>
+                                        }
+
+                                        <button class="btn btn-sm btn-danger ms-1" title="Dừng worker" @onclick="() => KillWorker(s)">
+                                            ❌ Kill
+                                        </button>
+
+                                        <button class="btn btn-sm btn-outline-danger ms-1" title="Xóa trạm" @onclick="() => DeleteStation(s)">
+                                            🗑️
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <div class="alert alert-info position-fixed bottom-0 end-0 m-3" style="z-index:1000;">
+                @message
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<Station> stations = new();
+    private List<Camera> cameras = new();
+    private bool loading = true;
+    private string message = "";
+    private string createMessage = "";
+    private string newStationName = "";
+    private HubConnection? hub;
+    private bool _initialized = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_initialized)
+        {
+            _initialized = true;
+            await Reload();
+            await InitSignalR(); // 👈 Nhận QR realtime
+            StateHasChanged();
+        }
+    }
+
+    private async Task InitSignalR()
+    {
+        try
+        {
+            hub = new HubConnectionBuilder()
+                .WithUrl(Nav.ToAbsoluteUri("/scanHub"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            hub.On<string, string, double, double, double, double>("ScanResult",
+                (stationName, code, x, y, w, h) =>
+                {
+                    var st = stations.FirstOrDefault(s => s.Name.Equals(stationName, StringComparison.OrdinalIgnoreCase));
+                    if (st != null)
+                    {
+                        st.CurrentCode = code; // 👈 Gán mã đang quét
+                        InvokeAsync(StateHasChanged);
+                    }
+                });
+
+            await hub.StartAsync();
+            Console.WriteLine("✅ SignalR connected.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ SignalR error: {ex.Message}");
+        }
+    }
+
+    private async Task Reload()
+    {
+        loading = true;
+        try
+        {
+            var t1 = StationService.GetAllStationsForAdminAsync();
+            var t2 = StationService.GetAllCamerasAsync();
+            await Task.WhenAll(t1, t2);
+
+            stations = t1.Result;
+            cameras = t2.Result;
+        }
+        catch (Exception ex)
+        {
+            message = $"❌ Lỗi tải dữ liệu: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task CreateStation()
+    {
+        if (string.IsNullOrWhiteSpace(newStationName)) return;
+
+        var success = await StationService.CreateStationAsync(newStationName.Trim());
+        if (success)
+        {
+            createMessage = $"✅ Đã tạo trạm: {newStationName}";
+            newStationName = "";
+            await Reload();
+        }
+        else createMessage = "❌ Tạo thất bại (Có thể trùng tên)";
+    }
+
+    private async Task SaveStationCameras(Station s)
+    {
+        var success = await StationService.UpdateCamerasAsync(s.Id, s.OverviewCameraId, s.QrCameraId);
+        if (success) ShowToast($"✅ Đã lưu cấu hình cho {s.Name}");
+        else ShowToast("❌ Lưu thất bại");
+    }
+
+    private async Task ForceRelease(Station s)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Bạn có chắc muốn mở khóa trạm {s.Name}?")) return;
+
+        var success = await StationService.ForceReleaseAsync(s.Id);
+        if (success)
+        {
+            ShowToast($"🔓 Đã mở khóa {s.Name}");
+            await Reload();
+        }
+    }
+
+    private async Task KillWorker(Station s)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"⚠️ Dừng worker của trạm {s.Name}?")) return;
+
+        var ok = await StationService.KillWorkerAsync(s.Guid);
+        if (ok) ShowToast($"❌ Đã dừng worker của {s.Name}");
+        else ShowToast("❌ Không thể dừng worker");
+    }
+
+    private async Task DeleteStation(Station s)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"⚠️ CẢNH BÁO: Xóa trạm {s.Name}? Dữ liệu không thể khôi phục!")) return;
+
+        var success = await StationService.DeleteStationAsync(s.Id);
+        if (success)
+        {
+            ShowToast($"🗑️ Đã xóa {s.Name}");
+            await Reload();
+        }
+        else ShowToast("❌ Không thể xóa trạm này");
+    }
+
+    private void ShowToast(string msg)
+    {
+        message = msg;
+        Task.Delay(3000).ContinueWith(_ => { message = ""; InvokeAsync(StateHasChanged); });
+    }
+}

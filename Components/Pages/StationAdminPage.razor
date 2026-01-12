@@ -1,0 +1,427 @@
+﻿@* FILE: Components/Pages/StationAdminPage.razor *@
+@page "/admin/stations1"
+@using Microsoft.AspNetCore.Authorization
+@using System.Net.Http.Headers
+@using System.Net.Http.Json
+@using WebGhiHinh.Models
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@attribute [Authorize(Roles = "admin,admin1")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Quản lý Trạm & 2 Camera</PageTitle>
+
+<div class="page-container fade-in">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h2 class="page-title mb-1">Quản lý Trạm & 2 Camera</h2>
+            <div class="text-muted small">
+                Gán Overview + QR camera, tạo trạm mới và giải phóng trạm đang bị chiếm.
+            </div>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="Reload">
+            🔄 Tải lại
+        </button>
+    </div>
+
+    @if (loading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- =========================
+             CREATE STATION
+        ========================== -->
+        <div class="create-card shadow-sm border p-3 mb-4">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <span class="cam-icon">➕</span>
+                <strong>Tạo trạm mới</strong>
+            </div>
+
+            <div class="row g-2 align-items-center">
+                <div class="col-12 col-md-6 col-lg-5">
+                    <input class="form-control input-lg"
+                           placeholder="Nhập tên trạm (VD: Máy3)"
+                           @bind="newStationName"
+                           @bind:event="oninput" />
+                </div>
+                <div class="col-12 col-md-auto">
+                    <button class="btn btn-create"
+                            disabled="@string.IsNullOrWhiteSpace(newStationName) || creating"
+                            @onclick="CreateStation">
+                        @(creating ? "Đang tạo..." : "Tạo trạm")
+                    </button>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(createMessage))
+            {
+                <div class="alert alert-info py-2 mt-3 mb-0">@createMessage</div>
+            }
+        </div>
+
+        <!-- =========================
+             LIST / ASSIGN
+        ========================== -->
+        <div class="list-card shadow-sm border p-3">
+            <div class="d-flex align-items-center gap-2 mb-3">
+                <span class="cam-icon">🎥</span>
+                <strong>Danh sách trạm</strong>
+            </div>
+
+            @if (!stations.Any())
+            {
+                <div class="empty-state text-center py-5">
+                    <div class="empty-icon">📭</div>
+                    <div class="text-muted">Chưa có trạm nào.</div>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table custom-table align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width:160px;">Trạm</th>
+                                <th style="width:200px;">Trạng thái</th>
+                                <th>Overview Camera</th>
+                                <th>QR Camera</th>
+                                <th style="width:180px;" class="text-end">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in stations)
+                            {
+                                <tr>
+                                    <td class="fw-semibold">@s.Name</td>
+
+                                    <td>
+                                        @if (s.CurrentUserId != null)
+                                        {
+                                            <span class="status-badge busy">
+                                                <span class="dot"></span>
+                                                Bận
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="status-badge free">
+                                                <span class="dot"></span>
+                                                Trống
+                                            </span>
+                                        }
+                                    </td>
+
+                                    <td>
+                                        <div class="camera-badge">
+                                            <span class="cam-icon">📷</span>
+                                            <select class="form-select form-select-sm"
+                                                    @bind="s.OverviewCameraId">
+                                                <option value="">-- Chọn camera --</option>
+                                                @foreach (var c in cameras)
+                                                {
+                                                    <option value="@c.Id">@c.Name</option>
+                                                }
+                                            </select>
+                                        </div>
+                                    </td>
+
+                                    <td>
+                                        <div class="camera-badge">
+                                            <span class="cam-icon">🔎</span>
+                                            <select class="form-select form-select-sm"
+                                                    @bind="s.QrCameraId">
+                                                <option value="">-- Chọn camera --</option>
+                                                @foreach (var c in cameras)
+                                                {
+                                                    <option value="@c.Id">@c.Name</option>
+                                                }
+                                            </select>
+                                        </div>
+                                    </td>
+
+                                    <td class="text-end">
+                                        <div class="d-inline-flex gap-2">
+                                            <button class="btn btn-sm btn-primary"
+                                                    title="Lưu gán camera"
+                                                    @onclick="() => SaveStationCameras(s)">
+                                                💾
+                                            </button>
+
+                                            @if (s.CurrentUserId != null)
+                                            {
+                                                <button class="btn-icon btn-force"
+                                                        title="Giải phóng trạm (Admin)"
+                                                        @onclick="() => ForceRelease(s)">
+                                                    🔓
+                                                </button>
+                                            }
+
+                                            <button class="btn-icon btn-delete"
+                                                    title="Xóa trạm"
+                                                    @onclick="() => DeleteStation(s)">
+                                                🗑️
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(message))
+            {
+                <div class="alert alert-info py-2 mt-3 mb-0">@message</div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<Station> stations = new();
+    private List<Camera> cameras = new();
+
+    private bool loading = true;
+    private bool creating = false;
+
+    private string message = "";
+    private string createMessage = "";
+    private string newStationName = "";
+
+    private bool _loadedOnce = false;
+
+    // ✅ Quan trọng cho Blazor Server:
+    // Chỉ đọc localStorage được sau khi render lần đầu
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_loadedOnce)
+        {
+            _loadedOnce = true;
+            await Reload();
+        }
+    }
+
+    private async Task Reload()
+    {
+        await AttachTokenToHttp();
+        await LoadAll();
+    }
+
+    private async Task LoadAll()
+    {
+        loading = true;
+        message = "";
+        createMessage = "";
+
+        try
+        {
+            // Nếu token rỗng -> đá về login sớm
+            if (!await HasToken())
+            {
+                message = "⚠️ Bạn chưa đăng nhập hoặc token đã mất. Vui lòng đăng nhập lại.";
+                Nav.NavigateTo("/login", true);
+                return;
+            }
+
+            var stRes = await Http.GetAsync("api/station");
+            if (stRes.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                message = "⚠️ Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.";
+                await ClearToken();
+                Nav.NavigateTo("/login", true);
+                return;
+            }
+
+            stations = await stRes.Content.ReadFromJsonAsync<List<Station>>() ?? new();
+
+            var camRes = await Http.GetAsync("api/cameras");
+            cameras = camRes.IsSuccessStatusCode
+                ? (await camRes.Content.ReadFromJsonAsync<List<Camera>>() ?? new())
+                : new();
+
+            stations = stations.OrderBy(s => s.Name).ToList();
+        }
+        catch (Exception ex)
+        {
+            message = "Lỗi tải dữ liệu: " + ex.Message;
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    // =========================
+    // CREATE STATION
+    // =========================
+    private async Task CreateStation()
+    {
+        if (string.IsNullOrWhiteSpace(newStationName)) return;
+
+        creating = true;
+        createMessage = "";
+
+        try
+        {
+            await AttachTokenToHttp();
+
+            var res = await Http.PostAsJsonAsync("api/station",
+                new { Name = newStationName.Trim() });
+
+            createMessage = res.IsSuccessStatusCode
+                ? $"✅ Đã tạo trạm {newStationName.Trim()}"
+                : $"❌ Tạo trạm thất bại ({res.StatusCode})";
+
+            if (res.IsSuccessStatusCode)
+            {
+                newStationName = "";
+                await LoadAll();
+            }
+        }
+        catch (Exception ex)
+        {
+            createMessage = "Lỗi tạo trạm: " + ex.Message;
+        }
+        finally
+        {
+            creating = false;
+            StateHasChanged();
+        }
+    }
+
+    // =========================
+    // SAVE CAMERAS
+    // =========================
+    private async Task SaveStationCameras(Station s)
+    {
+        try
+        {
+            await AttachTokenToHttp();
+
+            var res = await Http.PostAsJsonAsync("api/station/set-cameras", new
+            {
+                StationId = s.Id,
+                OverviewCameraId = s.OverviewCameraId,
+                QrCameraId = s.QrCameraId
+            });
+
+            message = res.IsSuccessStatusCode
+                ? $"✅ Đã lưu camera cho {s.Name}"
+                : $"❌ Lỗi lưu camera {s.Name}";
+        }
+        catch (Exception ex)
+        {
+            message = "Lỗi lưu camera: " + ex.Message;
+        }
+
+        StateHasChanged();
+    }
+
+    // =========================
+    // FORCE RELEASE (ADMIN)
+    // =========================
+    private async Task ForceRelease(Station s)
+    {
+        try
+        {
+            var confirm = await JS.InvokeAsync<bool>("confirm", $"Giải phóng trạm {s.Name}?");
+            if (!confirm) return;
+
+            await AttachTokenToHttp();
+
+            var res = await Http.PostAsJsonAsync("api/station/force-release", new
+            {
+                StationId = s.Id
+            });
+
+            message = res.IsSuccessStatusCode
+                ? $"🔓 Đã giải phóng {s.Name}"
+                : $"❌ Không thể giải phóng {s.Name}";
+
+            await LoadAll();
+        }
+        catch (Exception ex)
+        {
+            message = "Lỗi giải phóng: " + ex.Message;
+            StateHasChanged();
+        }
+    }
+
+    // =========================
+    // DELETE STATION
+    // =========================
+    private async Task DeleteStation(Station s)
+    {
+        try
+        {
+            var confirm = await JS.InvokeAsync<bool>("confirm", $"Xóa trạm {s.Name}?");
+            if (!confirm) return;
+
+            await AttachTokenToHttp();
+
+            var res = await Http.DeleteAsync($"api/station/{s.Id}");
+
+            message = res.IsSuccessStatusCode
+                ? $"🗑️ Đã xóa {s.Name}"
+                : $"❌ Xóa thất bại {s.Name}";
+
+            await LoadAll();
+        }
+        catch (Exception ex)
+        {
+            message = "Lỗi xóa: " + ex.Message;
+            StateHasChanged();
+        }
+    }
+
+    // =========================
+    // AUTH HELPERS
+    // =========================
+    private async Task AttachTokenToHttp()
+    {
+        try
+        {
+            var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
+            if (!string.IsNullOrEmpty(token))
+            {
+                Http.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", token);
+            }
+        }
+        catch { }
+    }
+
+    private async Task<bool> HasToken()
+    {
+        try
+        {
+            var token = await JS.InvokeAsync<string>("localStorage.getItem", "token");
+            return !string.IsNullOrWhiteSpace(token);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task ClearToken()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.removeItem", "token");
+            await JS.InvokeVoidAsync("localStorage.removeItem", "username");
+            await JS.InvokeVoidAsync("localStorage.removeItem", "role");
+        }
+        catch { }
+    }
+}

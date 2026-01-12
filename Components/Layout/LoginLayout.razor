@@ -1,0 +1,22 @@
+﻿@inherits LayoutComponentBase
+
+<div class="login-layout-wrapper">
+    @Body
+</div>
+
+<style>
+    /* CSS đơn giản để căn giữa trang đăng nhập và tô nền */
+    body {
+        margin: 0;
+        padding: 0;
+        background-color: #f3f4f6; /* Màu xám nhẹ dễ chịu */
+    }
+
+    .login-layout-wrapper {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
+</style>

@@ -1,0 +1,428 @@
+﻿@page "/admin/users"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using WebGhiHinh.Data
+@using WebGhiHinh.Models
+@using System.ComponentModel.DataAnnotations
+
+@attribute [Authorize(Roles = "admin")]
+
+@inject AppDbContext DbContext
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>Quản lý Tài khoản</PageTitle>
+
+<div class="page-container fade-in">
+    <div class="page-header">
+        <h1>👥 Quản lý Tài khoản</h1>
+        <div class="header-actions">
+            <button class="btn btn-secondary btn-sm" @onclick='() => Nav.NavigateTo("/admin")'>⬅ Quay lại</button>
+            
+            @* 🔥 NÚT MỚI: XUẤT BÁO CÁO TỔNG *@
+            <button class="btn btn-success btn-sm" @onclick="OpenSummaryReportModal">
+                <i class="bi bi-file-earmark-spreadsheet"></i> Báo cáo Tổng
+            </button>
+
+            <button class="btn btn-primary btn-sm" @onclick="OpenCreateModal">+ Thêm User</button>
+            <a href="/account/logout" class="btn btn-warning btn-sm">Đăng xuất</a>
+        </div>
+    </div>
+
+    <div class="page-section">
+        @if (!string.IsNullOrEmpty(uiMessage))
+        {
+            <div class="alert alert-info alert-dismissible fade show" role="alert" style="margin: 20px;">
+                @uiMessage
+                <button type="button" class="btn-close" @onclick='() => uiMessage = ""'></button>
+            </div>
+        }
+
+        @if (users == null)
+        {
+            <div class="d-flex justify-content-center py-5"><div class="spinner"></div></div>
+        }
+        else if (users.Count == 0)
+        {
+            <p class="text-muted text-center py-5">Chưa có tài khoản nào trong hệ thống.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table admin-table align-middle">
+                    <thead>
+                        <tr>
+                            <th style="width:50px;">ID</th>
+                            <th>Username</th>
+                            <th>Họ tên</th>
+                            <th>Mã NV</th>
+                            <th>Payload QR</th>
+                            <th style="width:120px;">Vai trò</th>
+                            <th style="width:280px;">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var u in users)
+                        {
+                            <tr>
+                                <td>@u.Id</td>
+                                <td><strong>@u.Username</strong></td>
+                                <td>@u.FullName</td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(u.EmployeeCode))
+                                    {
+                                        <span class="badge bg-light text-dark border">@u.EmployeeCode</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">-</span>
+                                    }
+                                </td>
+                                <td>
+                                    @{ var payload = GenerateQrPayload(u); }
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="small text-muted text-truncate" style="max-width: 150px;" title="@payload">@payload</div>
+                                        <button class="btn btn-sm btn-outline-success py-0 px-1" title="Copy Payload" @onclick="() => CopyToClipboard(payload, u.Username)">📋</button>
+                                    </div>
+                                </td>
+                                <td>
+                                    @if (u.Role == "admin") { <span class="badge bg-danger">Admin</span> }
+                                    else if (u.Role == "admin1") { <span class="badge bg-warning text-dark">Admin 1</span> }
+                                    else { <span class="badge bg-success">User</span> }
+                                </td>
+                                <td>
+                                    <button class="btn btn-info btn-sm me-1 text-white" @onclick="() => OpenProductivityModal(u)" title="Xem lịch sử làm việc">
+                                        📊 Năng suất
+                                    </button>
+                                    <button class="btn btn-warning btn-sm me-1" @onclick="() => OpenEditModal(u)">Sửa</button>
+                                    <button class="btn btn-danger btn-sm me-1" @onclick="() => DeleteUser(u)">Xóa</button>
+                                    <button class="btn btn-sm btn-outline-dark" @onclick="() => ShowEmployeeQr(u)" title="Xem mã QR">🖨️</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@* --- MODAL 4: BÁO CÁO TỔNG HỢP --- *@
+@if (showSummaryReportModal)
+{
+    <div class="modal-backdrop fade show" style="z-index: 1060;"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="z-index: 1065;">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title"><i class="bi bi-bar-chart-line-fill"></i> Báo Cáo Năng Suất Tổng Hợp</h5>
+                    <button type="button" class="btn-close" @onclick="() => showSummaryReportModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    
+                    @* Bộ lọc ngày tháng *@
+                    <div class="row g-3 mb-4 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Từ ngày</label>
+                            <input type="date" class="form-control" @bind="reportFromDate" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Đến ngày</label>
+                            <input type="date" class="form-control" @bind="reportToDate" />
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-primary w-100" @onclick="GenerateSummaryReport">
+                                <i class="bi bi-search"></i> Xem Báo Cáo
+                            </button>
+                        </div>
+                    </div>
+
+                    @* Kết quả báo cáo *@
+                    @if (summaryReportData == null)
+                    {
+                        <div class="text-center text-muted">Vui lòng chọn khoảng thời gian để xem báo cáo.</div>
+                    }
+                    else if (summaryReportData.Count == 0)
+                    {
+                        <div class="alert alert-warning text-center">Không có dữ liệu trong khoảng thời gian này.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-striped">
+                                <thead class="table-success">
+                                    <tr>
+                                        <th>Hạng</th>
+                                        <th>Nhân viên</th>
+                                        <th>Mã NV</th>
+                                        <th class="text-center">Tổng số đơn</th>
+                                        <th class="text-center">Hiệu suất</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @{ int rank = 1; int maxOrders = summaryReportData.Max(x => x.TotalOrders); }
+                                    @foreach (var item in summaryReportData)
+                                    {
+                                        <tr>
+                                            <td class="text-center fw-bold">@(rank++)</td>
+                                            <td>@item.FullName</td>
+                                            <td>@item.EmployeeCode</td>
+                                            <td class="text-center fw-bold fs-5 text-primary">@item.TotalOrders</td>
+                                            <td style="width: 30%;">
+                                                @{ var percent = maxOrders > 0 ? (item.TotalOrders * 100 / maxOrders) : 0; }
+                                                <div class="progress" style="height: 20px;">
+                                                    <div class="progress-bar bg-success" role="progressbar" style="width: @percent%;" 
+                                                         aria-valuenow="@percent" aria-valuemin="0" aria-valuemax="100">
+                                                        @percent%
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                    @* Dòng tổng cộng *@
+                                    <tr class="table-info fw-bold">
+                                        <td colspan="3" class="text-end">TỔNG CỘNG TOÀN CÔNG TY:</td>
+                                        <td class="text-center fs-5">@summaryReportData.Sum(x => x.TotalOrders)</td>
+                                        <td></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => showSummaryReportModal = false">Đóng</button>
+                    @if(summaryReportData != null && summaryReportData.Count > 0)
+                    {
+                        <button class="btn btn-outline-primary" onclick="window.print()">🖨️ In Báo Cáo</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* --- CÁC MODAL CŨ GIỮ NGUYÊN (Create/Edit, QR, Productivity Cá nhân) --- *@
+@if (showModal) { /* ... Code Modal Create/Edit cũ ... */ 
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <EditForm Model="currentUser" OnValidSubmit="SaveUser">
+                    <DataAnnotationsValidator />
+                    <div class="modal-header">
+                        <h5 class="modal-title">@(currentUser.Id == 0 ? "Tạo Tài khoản mới" : "Cập nhật Tài khoản")</h5>
+                        <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                    </div>
+                    <div class="modal-body">
+                        @* ... Form fields ... *@
+                        <div class="mb-3"><label class="form-label">Tên đăng nhập</label><InputText class="form-control" @bind-Value="currentUser.Username" disabled="@(currentUser.Id != 0)" /></div>
+                        <div class="mb-3"><label class="form-label">Mật khẩu</label><InputText type="password" class="form-control" @bind-Value="passwordInput" /></div>
+                        <div class="row">
+                            <div class="col-6 mb-3"><label class="form-label">Họ tên</label><InputText class="form-control" @bind-Value="currentUser.FullName" /></div>
+                            <div class="col-6 mb-3"><label class="form-label">Mã NV</label><InputText class="form-control" @bind-Value="currentUser.EmployeeCode" /></div>
+                        </div>
+                        <div class="mb-3"><label class="form-label">Địa chỉ</label><InputText class="form-control" @bind-Value="currentUser.Address" /></div>
+                        <div class="mb-3"><label class="form-label">Vai trò</label><InputSelect class="form-select" @bind-Value="currentUser.Role"><option value="user">User</option><option value="admin">Admin</option><option value="admin1">Admin 1</option></InputSelect></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseModal">Hủy</button>
+                        <button type="submit" class="btn btn-primary">Lưu lại</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showQrModal) { /* ... Code Modal QR cũ ... */ 
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1">
+        <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">QR Nhân viên</h5><button type="button" class="btn-close" @onclick="() => showQrModal = false"></button></div>
+                <div class="modal-body text-center">
+                    @if (selectedUserForQr != null) { <img src="@($"/api/users/{selectedUserForQr.Id}/employee-qr-image")" style="max-width:100%;" /><div class="mt-2 fw-bold">@selectedUserForQr.FullName</div> }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showProductivityModal) { /* ... Code Modal Năng suất cá nhân cũ ... */ 
+    <div class="modal-backdrop fade show" style="z-index: 1050;"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="z-index: 1055;">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title">Lịch sử làm việc: <strong>@targetUserStats?.FullName</strong></h5>
+                    <button type="button" class="btn-close" @onclick="() => showProductivityModal = false"></button>
+                </div>
+                <div class="modal-body bg-light">
+                    <div class="card mb-3 shadow-sm border-0">
+                        <div class="card-body py-2 d-flex align-items-center gap-3">
+                            <div class="d-flex align-items-center gap-2"><i class="bi bi-funnel-fill text-secondary"></i><span class="fw-bold">Lọc ngày:</span></div>
+                            <input type="date" class="form-control w-auto" value="@(filterDate.HasValue ? filterDate.Value.ToString("yyyy-MM-dd") : "")" @onchange="OnDateFilterChanged" />
+                            @if (filterDate.HasValue) { <button class="btn btn-outline-secondary btn-sm" @onclick="ShowAllHistory">❌ Bỏ lọc</button> }
+                        </div>
+                    </div>
+                    @if (userLogs == null) { <div class="text-center py-4"><div class="spinner-border text-primary"></div></div> }
+                    else if (userLogs.Count == 0) { <div class="text-center text-muted py-5">Chưa có dữ liệu.</div> }
+                    else {
+                        var groupedLogs = userLogs.GroupBy(l => l.StartTime.Date).OrderByDescending(g => g.Key);
+                        <div class="d-flex flex-column gap-3">
+                            @foreach (var group in groupedLogs) {
+                                <div class="card shadow-sm border-0">
+                                    <div class="card-header bg-white border-bottom d-flex justify-content-between">
+                                        <div class="fw-bold text-primary">📅 Ngày @group.Key.ToString("dd/MM/yyyy")</div>
+                                        <span class="badge bg-secondary rounded-pill">@group.Count() đơn</span>
+                                    </div>
+                                    <div class="card-body p-0">
+                                        <table class="table table-striped table-hover mb-0">
+                                            <thead class="table-light"><tr><th class="ps-3">Giờ</th><th>Mã Đơn / QR</th><th>Tại trạm</th><th>Trạng thái</th></tr></thead>
+                                            <tbody>
+                                                @foreach (var log in group.OrderByDescending(l => l.StartTime)) {
+                                                    <tr><td class="ps-3 fw-bold text-muted">@log.StartTime.ToString("HH:mm")</td><td><span class="badge bg-light text-dark border font-monospace">@log.QrCode</span></td><td>@log.StationName</td><td>@(string.IsNullOrEmpty(log.FilePath) ? "--" : "✅ Đã lưu")</td></tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer bg-light"><button type="button" class="btn btn-secondary" @onclick="() => showProductivityModal = false">Đóng</button></div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    public class UserViewModel {
+        public int Id { get; set; }
+        [Required(ErrorMessage = "Vui lòng nhập Username")] public string Username { get; set; } = "";
+        public string? FullName { get; set; }
+        public string? EmployeeCode { get; set; }
+        public string? Address { get; set; }
+        public string Role { get; set; } = "user";
+    }
+
+    // Model cho báo cáo tổng
+    public class UserReportItem
+    {
+        public string FullName { get; set; } = "";
+        public string EmployeeCode { get; set; } = "";
+        public int TotalOrders { get; set; }
+    }
+
+    private List<UserViewModel>? users;
+    private UserViewModel currentUser = new();
+    private User? selectedUserForQr;
+    
+    private bool showModal = false;
+    private bool showQrModal = false;
+    private string passwordInput = "";
+    private string errorMsg = "";
+    private string uiMessage = "";
+
+    // Năng suất cá nhân
+    private bool showProductivityModal = false;
+    private UserViewModel? targetUserStats;
+    private DateTime? filterDate = null;
+    private List<VideoLog>? userLogs;
+
+    // 🔥 BIẾN CHO BÁO CÁO TỔNG
+    private bool showSummaryReportModal = false;
+    private DateTime reportFromDate = DateTime.Today; // Mặc định từ hôm nay
+    private DateTime reportToDate = DateTime.Today;   // Đến hôm nay
+    private List<UserReportItem>? summaryReportData;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUsers();
+    }
+
+    private async Task LoadUsers()
+    {
+        var dbUsers = await DbContext.Users.OrderByDescending(u => u.Id).ToListAsync();
+        users = dbUsers.Select(u => new UserViewModel {
+            Id = u.Id, Username = u.Username, FullName = u.FullName,
+            EmployeeCode = u.EmployeeCode, Address = u.Address, Role = u.Role ?? "user"
+        }).ToList();
+    }
+
+    // --- CÁC HÀM CŨ ---
+    private async Task OpenProductivityModal(UserViewModel u) { targetUserStats = u; filterDate = null; showProductivityModal = true; await LoadUserStats(); }
+    private async Task OnDateFilterChanged(ChangeEventArgs e) { if (DateTime.TryParse(e.Value?.ToString(), out var date)) { filterDate = date; await LoadUserStats(); } else { filterDate = null; await LoadUserStats(); } }
+    private async Task ShowAllHistory() { filterDate = null; await LoadUserStats(); }
+    private async Task LoadUserStats() {
+        if (targetUserStats == null) return;
+        userLogs = null; StateHasChanged();
+        try {
+            var query = DbContext.VideoLogs.AsQueryable().Where(v => v.RecordedBy == targetUserStats.Username);
+            if (filterDate.HasValue) { var start = filterDate.Value.Date; var end = start.AddDays(1).AddTicks(-1); query = query.Where(v => v.StartTime >= start && v.StartTime <= end); }
+            userLogs = await query.OrderByDescending(v => v.StartTime).ToListAsync();
+        } catch { userLogs = new List<VideoLog>(); }
+        StateHasChanged();
+    }
+    private void OpenCreateModal() { currentUser = new UserViewModel { Role = "user" }; passwordInput = ""; errorMsg = ""; showModal = true; }
+    private void OpenEditModal(UserViewModel u) { currentUser = new UserViewModel { Id = u.Id, Username = u.Username, FullName = u.FullName, EmployeeCode = u.EmployeeCode, Address = u.Address, Role = u.Role }; passwordInput = ""; errorMsg = ""; showModal = true; }
+    private void CloseModal() => showModal = false;
+    private async Task SaveUser() { /* Code Save User cũ */ 
+        errorMsg = ""; try { if (currentUser.Id == 0) { if (string.IsNullOrWhiteSpace(passwordInput)) { errorMsg = "Vui lòng nhập mật khẩu."; return; } if (await DbContext.Users.AnyAsync(u => u.Username == currentUser.Username)) { errorMsg = "Tên đăng nhập đã tồn tại!"; return; } var newUser = new User { Username = currentUser.Username, PasswordHash = passwordInput, FullName = currentUser.FullName, EmployeeCode = currentUser.EmployeeCode, Address = currentUser.Address, Role = currentUser.Role }; DbContext.Users.Add(newUser); await DbContext.SaveChangesAsync(); uiMessage = $"✅ Đã tạo user {newUser.Username}"; } else { var user = await DbContext.Users.FindAsync(currentUser.Id); if (user != null) { user.FullName = currentUser.FullName; user.EmployeeCode = currentUser.EmployeeCode; user.Address = currentUser.Address; user.Role = currentUser.Role; if (!string.IsNullOrWhiteSpace(passwordInput)) user.PasswordHash = passwordInput; await DbContext.SaveChangesAsync(); uiMessage = $"✅ Đã cập nhật user {user.Username}"; } } showModal = false; await LoadUsers(); } catch (Exception ex) { errorMsg = "Lỗi: " + ex.Message; }
+    }
+    private async Task DeleteUser(UserViewModel u) { if (!await JS.InvokeAsync<bool>("confirm", $"Xóa {u.Username}?")) return; var user = await DbContext.Users.FindAsync(u.Id); if (user != null) { DbContext.Users.Remove(user); await DbContext.SaveChangesAsync(); uiMessage = $"🗑️ Đã xóa user {u.Username}"; await LoadUsers(); } }
+    private string GenerateQrPayload(UserViewModel u) { if (string.IsNullOrEmpty(u.EmployeeCode)) return ""; return $"EMPLOYEE:{u.Id}:{u.EmployeeCode}"; }
+    private async Task CopyToClipboard(string text, string username) { if (string.IsNullOrEmpty(text)) { uiMessage = $"⚠️ User {username} chưa có Mã NV."; return; } try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); uiMessage = $"✅ Đã copy payload của {username}"; } catch { uiMessage = "❌ Lỗi copy clipboard"; } }
+    private void ShowEmployeeQr(UserViewModel vm) { selectedUserForQr = new User { Id = vm.Id, FullName = vm.FullName, EmployeeCode = vm.EmployeeCode }; showQrModal = true; }
+
+    // --- 🔥 LOGIC BÁO CÁO TỔNG MỚI ---
+    private void OpenSummaryReportModal()
+    {
+        // Reset thời gian về đầu ngày và cuối ngày hôm nay
+        reportFromDate = DateTime.Today;
+        reportToDate = DateTime.Today;
+        summaryReportData = null; // Clear dữ liệu cũ
+        showSummaryReportModal = true;
+    }
+
+    private async Task GenerateSummaryReport()
+    {
+        try
+        {
+            var start = reportFromDate.Date;
+            var end = reportToDate.Date.AddDays(1).AddTicks(-1);
+
+            // 1. Lấy danh sách logs trong khoảng thời gian
+            var logs = await DbContext.VideoLogs
+                .Where(l => l.StartTime >= start && l.StartTime <= end && !string.IsNullOrEmpty(l.RecordedBy))
+                .ToListAsync();
+
+            // 2. Lấy danh sách tất cả user để map tên
+            var allUsers = await DbContext.Users.ToListAsync();
+
+            // 3. Group by RecordedBy (Username) và tính tổng
+            // Left join với bảng Users để lấy FullName
+            summaryReportData = allUsers
+                .GroupJoin(logs, 
+                    u => u.Username, 
+                    l => l.RecordedBy, 
+                    (u, uLogs) => new UserReportItem 
+                    {
+                        FullName = u.FullName ?? u.Username,
+                        EmployeeCode = u.EmployeeCode ?? "--",
+                        TotalOrders = uLogs.Count()
+                    })
+                .Where(x => x.TotalOrders > 0) // Chỉ hiện người có làm việc
+                .OrderByDescending(x => x.TotalOrders) // Sắp xếp ai làm nhiều nhất lên đầu
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            uiMessage = "❌ Lỗi tạo báo cáo: " + ex.Message;
+        }
+    }
+}

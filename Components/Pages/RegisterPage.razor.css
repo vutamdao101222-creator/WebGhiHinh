@@ -1,0 +1,223 @@
+﻿/* --- RegisterPage.razor.css (Đã thêm ::deep để fix lỗi InputText) --- */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes gradientShift {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+@keyframes neonPulse {
+    0% {
+        text-shadow: 0 0 6px rgba(59,130,246,.4);
+    }
+
+    50% {
+        text-shadow: 0 0 14px rgba(59,130,246,.7);
+    }
+
+    100% {
+        text-shadow: 0 0 6px rgba(59,130,246,.4);
+    }
+}
+
+/* Cấu trúc trang */
+.auth-page {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    padding-top: 60px;
+    padding-bottom: 60px;
+    font-family: "Segoe UI", Roboto, sans-serif;
+    position: relative;
+}
+
+/* Thẻ Form */
+.auth-card {
+    width: 100%;
+    max-width: 520px;
+    padding: 3rem 3.5rem;
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid #fff;
+    box-shadow: 0 20px 50px rgba(59, 130, 246, 0.15);
+    animation: fadeIn 0.5s ease-out;
+    text-align: center;
+}
+
+.auth-icon {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    background: #e0e7ff;
+    color: #2563eb;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 0 auto 1.5rem;
+    box-shadow: 0 4px 15px rgba(37, 99, 235, 0.2);
+}
+
+.auth-title {
+    font-size: 2.2rem;
+    font-weight: 800;
+    margin-bottom: 2rem;
+    color: #1e3a8a;
+    letter-spacing: -0.5px;
+}
+
+/* === 👇 SỬA QUAN TRỌNG: Thêm ::deep vào Input === */
+.input-group {
+    position: relative;
+    margin-bottom: 1.5rem;
+}
+
+.input-icon {
+    position: absolute;
+    left: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #64748b;
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* Thêm ::deep để style xuyên vào trong <InputText> */
+::deep .auth-input {
+    width: 100%;
+    padding: 1rem 1rem 1rem 3.2rem; /* Padding trái lớn để né icon */
+    border-radius: 12px;
+    border: 2px solid #e2e8f0;
+    background: #f8fafc;
+    font-size: 1rem;
+    font-weight: 500;
+    color: #334155;
+    transition: all 0.2s ease-in-out;
+    outline: none;
+}
+
+    /* Hiệu ứng focus */
+    ::deep .auth-input:focus {
+        border-color: #3b82f6;
+        background: #fff;
+        box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+    }
+
+    ::deep .auth-input::placeholder {
+        color: #94a3b8;
+        font-weight: 400;
+    }
+/* === 👆 HẾT PHẦN SỬA === */
+
+.btn {
+    margin-top: 1rem;
+    width: 100%;
+    padding: 1rem;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: white;
+    font-weight: 700;
+    font-size: 1.1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);
+}
+
+    .btn:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.4);
+    }
+
+.bottom-link {
+    margin-top: 2rem;
+    color: #64748b;
+    font-size: 0.95rem;
+}
+
+    .bottom-link a {
+        color: #2563eb;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+        .bottom-link a:hover {
+            text-decoration: underline;
+        }
+
+/* Marquee */
+.tech-marquee-container {
+    position: absolute;
+    top: 0;
+    width: 100%;
+    background: #1e3a8a;
+    padding: 0.5rem 0;
+    overflow: hidden;
+    white-space: nowrap;
+    z-index: 10;
+}
+
+.tech-marquee-text {
+    display: inline-block;
+    animation: marquee 20s linear infinite;
+}
+
+    .tech-marquee-text span {
+        padding: 0 2rem;
+        color: rgba(255,255,255,0.8);
+        font-weight: 700;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+
+@keyframes marquee {
+    0% {
+        transform: translateX(0);
+    }
+
+    100% {
+        transform: translateX(-50%);
+    }
+}
+
+.spinner {
+    border: 3px solid rgba(255,255,255,0.3);
+    border-radius: 50%;
+    border-top: 3px solid #fff;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite;
+}

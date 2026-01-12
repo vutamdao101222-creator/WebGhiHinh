@@ -1,0 +1,143 @@
+﻿@page "/register"
+@inject NavigationManager Nav
+@inject HttpClient Http
+
+<PageTitle>Đăng ký</PageTitle>
+<div class="auth-page">
+    <div class="tech-marquee-container">
+        <div class="tech-marquee-text">
+            @for (int i = 0; i < 12; i++)
+            {
+                <span>HOPLONG TECH</span>
+            }
+        </div>
+    </div>
+
+    <div class="auth-card">
+        <div class="auth-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+        </div>
+
+        <h1 class="auth-title">Đăng ký tài khoản</h1>
+
+        <EditForm Model="@registerModel" OnValidSubmit="HandleRegister" FormName="register">
+            <DataAnnotationsValidator />
+
+            <div class="input-group">
+                <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                <InputText @bind-Value="registerModel.FullName" class="auth-input" placeholder="Họ và tên" />
+            </div>
+
+            <div class="input-group">
+                <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2" /><line x1="2" y1="10" x2="22" y2="10" /></svg>
+                <InputText @bind-Value="registerModel.EmployeeCode" class="auth-input" placeholder="Mã nhân viên" />
+            </div>
+
+            <div class="input-group">
+                <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                <InputText @bind-Value="registerModel.Username" class="auth-input" placeholder="Tên đăng nhập" />
+            </div>
+
+            <div class="input-group">
+                <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"></path><circle cx="16.5" cy="7.5" r=".5"></circle></svg>
+                <InputText @bind-Value="registerModel.Password" type="password" class="auth-input" placeholder="Mật khẩu" />
+            </div>
+
+            <div class="input-group">
+                <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+                <InputText @bind-Value="confirmPassword" type="password" class="auth-input" placeholder="Nhập lại mật khẩu" />
+            </div>
+
+            <div class="input-group">
+                <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
+                <InputText @bind-Value="registerModel.Address" class="auth-input" placeholder="Địa chỉ" />
+            </div>
+
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <p class="auth-error">@error</p>
+            }
+            @if (!string.IsNullOrEmpty(success))
+            {
+                <p class="auth-success">@success</p>
+            }
+
+            <button class="btn" type="submit" disabled="@loading">
+                @if (loading)
+                {
+                    <div class="spinner"></div>
+                }
+                @(loading ? "Đang xử lý..." : "Đăng ký")
+            </button>
+        </EditForm>
+
+        <p class="bottom-link">
+            Đã có tài khoản? <a href="/login">Đăng nhập</a>
+        </p>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private RegisterDto registerModel { get; set; } = new RegisterDto();
+
+    [SupplyParameterFromForm]
+    private string confirmPassword { get; set; } = "";
+
+    private string error = "";
+    private string success = "";
+    private bool loading = false;
+
+    protected override void OnInitialized()
+    {
+        if (registerModel == null) registerModel = new RegisterDto();
+    }
+
+    private async Task HandleRegister()
+    {
+        error = "";
+        success = "";
+
+        if (string.IsNullOrWhiteSpace(registerModel.FullName) || string.IsNullOrWhiteSpace(registerModel.EmployeeCode))
+        {
+            error = "⚠️ Vui lòng điền đầy đủ thông tin!";
+            return;
+        }
+
+        if (registerModel.Password != confirmPassword)
+        {
+            error = "❌ Mật khẩu nhập lại không khớp!";
+            return;
+        }
+
+        loading = true;
+        try
+        {
+            var response = await Http.PostAsJsonAsync("api/auth/register", registerModel);
+            if (response.IsSuccessStatusCode)
+            {
+                success = "✅ Đăng ký thành công! Đang chuyển trang...";
+                await Task.Delay(1500);
+                Nav.NavigateTo("/login");
+            }
+            else
+            {
+                error = "⚠️ " + await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception)
+        {
+            error = "❌ Không thể kết nối server!";
+        }
+        loading = false;
+    }
+
+    public class RegisterDto
+    {
+        public string FullName { get; set; } = "";
+        public string EmployeeCode { get; set; } = "";
+        public string Username { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string Address { get; set; } = "";
+    }
+}
